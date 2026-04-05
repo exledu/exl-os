@@ -41,8 +41,10 @@ export async function generateSessions(classId: number, windowMonths = 3) {
 
 /**
  * Reschedule future sessions (from today) for a recurring class.
- * Preserves sessions that have been manually edited (originalDate != null).
- * Deletes and regenerates all future unedited sessions.
+ * Moves each future session to the new day of week within its Mon–Sun week.
+ * Does NOT create or delete sessions — only updates existing dates.
+ * Skips sessions that have been manually edited (originalDate != null).
+ * Also updates startTime/endTime if changed.
  */
 export async function rescheduleFutureSessions(classId: number) {
   const cls = await prisma.class.findUnique({ where: { id: classId } })
@@ -52,35 +54,35 @@ export async function rescheduleFutureSessions(classId: number) {
   if (dayOfWeek == null || !startTime || !endTime) return
 
   const today = startOfDay(new Date())
-  const windowEnd = addMonths(today, 6)
 
-  // Delete future sessions that have NOT been manually edited
-  await prisma.classSession.deleteMany({
+  // Get all future sessions that haven't been manually edited
+  const futureSessions = await prisma.classSession.findMany({
     where: { classId, date: { gt: today }, originalDate: null },
+    orderBy: { date: 'asc' },
   })
 
-  // Find all future edited sessions to avoid duplicate dates
-  const editedSessions = await prisma.classSession.findMany({
-    where: { classId, date: { gt: today }, originalDate: { not: null } },
-    select: { date: true },
-  })
-  const editedDates = new Set(editedSessions.map(s => s.date.toISOString().split('T')[0]))
+  for (const session of futureSessions) {
+    const currentDate = session.date
+    // Find the Monday of this session's week
+    const currentDay = currentDate.getUTCDay() // 0=Sun, 1=Mon, ...
+    const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay
+    const monday = new Date(currentDate)
+    monday.setUTCDate(currentDate.getUTCDate() + mondayOffset)
 
-  // Generate sessions
-  const sessions: { classId: number; date: Date; startTime: string; endTime: string }[] = []
-  let cursor = setDay(today, dayOfWeek, { weekStartsOn: 0 })
-  if (cursor <= today) cursor = addDays(cursor, 7)
+    // Set to the new day of week within the same Mon–Sun week
+    // dayOfWeek: 0=Sun, 1=Mon, ..., 6=Sat
+    const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+    const newDate = new Date(monday)
+    newDate.setUTCDate(monday.getUTCDate() + daysFromMonday)
 
-  while (cursor <= windowEnd) {
-    const dateStr = startOfDay(cursor).toISOString().split('T')[0]
-    if (!editedDates.has(dateStr)) {
-      sessions.push({ classId, date: startOfDay(cursor), startTime, endTime })
-    }
-    cursor = addDays(cursor, 7)
-  }
-
-  if (sessions.length > 0) {
-    await prisma.classSession.createMany({ data: sessions })
+    await prisma.classSession.update({
+      where: { id: session.id },
+      data: {
+        date: newDate,
+        startTime,
+        endTime,
+      },
+    })
   }
 }
 
