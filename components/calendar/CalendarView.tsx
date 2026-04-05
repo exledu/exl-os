@@ -75,6 +75,7 @@ export function CalendarView() {
           allDaySlot={false}
           weekends={true}
           nowIndicator={true}
+          firstDay={1}
         />
       </div>
 
