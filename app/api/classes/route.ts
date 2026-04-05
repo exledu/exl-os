@@ -12,9 +12,7 @@ export async function GET() {
     },
     orderBy: { createdAt: 'desc' },
   })
-  return Response.json(classes, {
-    headers: { 'Cache-Control': 's-maxage=30, stale-while-revalidate=120' },
-  })
+  return Response.json(classes)
 }
 
 export async function POST(request: Request) {
