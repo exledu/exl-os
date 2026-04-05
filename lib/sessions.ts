@@ -107,7 +107,8 @@ export async function initFirstTerm(classId: number, startDate: Date) {
 
 /**
  * Add the next term (10 sessions) for a recurring class.
- * Starts 2 weeks after the last existing session, then 10 weekly occurrences.
+ * Skips 2 occurrences (3 weeks) after the last session, then 10 weekly sessions.
+ * e.g. last Sunday Term 1 → skip next 2 Sundays → Term 2 starts on the 3rd Sunday.
  */
 export async function addNextTerm(classId: number) {
   const cls = await prisma.class.findUnique({ where: { id: classId } })
@@ -118,8 +119,12 @@ export async function addNextTerm(classId: number) {
     orderBy: { date: 'desc' },
   })
 
-  const afterSkip = lastSession
-    ? addDays(startOfDay(lastSession.date), 14)
+  // Use the original date (not a revised date) to calculate the gap
+  const lastDate = lastSession
+    ? startOfDay(lastSession.originalDate ?? lastSession.date)
+    : null
+  const afterSkip = lastDate
+    ? addDays(lastDate, 21)
     : startOfDay(new Date())
 
   // Find first matching day of week on or after afterSkip

@@ -529,8 +529,24 @@ export function StudentsView() {
                       <p className="text-sm text-zinc-400">Not enrolled in any classes yet.</p>
                     )}
                     {selected.enrolments.map(e => (
-                      <EnrolmentCard key={e.id} enrolment={e} />
+                      <EnrolmentCard
+                        key={e.id}
+                        enrolment={e}
+                        onRemove={async () => {
+                          await fetch(`/api/classes/${e.class.id}/enrolments`, {
+                            method: 'DELETE',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ studentId: selected.id }),
+                          })
+                          selectStudent(selected.id)
+                        }}
+                      />
                     ))}
+                    <EnrolClassPicker
+                      studentId={selected.id}
+                      currentClassIds={selected.enrolments.map(e => e.class.id)}
+                      onEnrolled={() => selectStudent(selected.id)}
+                    />
                   </div>
                 </section>
 
@@ -641,11 +657,18 @@ function SectionHeading({ icon, children }: { icon?: React.ReactNode; children: 
   )
 }
 
-function EnrolmentCard({ enrolment: e }: { enrolment: EnrolledClass }) {
+function EnrolmentCard({ enrolment: e, onRemove }: { enrolment: EnrolledClass; onRemove: () => void }) {
+  const [removing, setRemoving] = useState(false)
   const colour = subjectColour(e.class.subject.name, e.class.yearLevel.level)
+
+  async function handleRemove() {
+    setRemoving(true)
+    await onRemove()
+  }
+
   return (
     <div
-      className="flex items-start gap-3 rounded-lg border border-zinc-100 px-3.5 py-2.5"
+      className={`flex items-center gap-3 rounded-lg border border-zinc-100 px-3.5 py-2.5 group ${removing ? 'opacity-50' : ''}`}
       style={{ borderLeftColor: colour, borderLeftWidth: 4 }}
     >
       <div className="flex-1 min-w-0">
@@ -668,6 +691,105 @@ function EnrolmentCard({ enrolment: e }: { enrolment: EnrolledClass }) {
           <span className="text-xs text-zinc-400">with {e.class.staff.name}</span>
           {e.class.room && <span className="text-xs text-zinc-400">{e.class.room.name}</span>}
         </div>
+      </div>
+      <button
+        onClick={handleRemove}
+        disabled={removing}
+        className="rounded p-1 text-zinc-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
+        title="Remove from class"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  )
+}
+
+function EnrolClassPicker({
+  studentId,
+  currentClassIds,
+  onEnrolled,
+}: {
+  studentId: number
+  currentClassIds: number[]
+  onEnrolled: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [classes, setClasses] = useState<{ id: number; subject: { name: string }; yearLevel: { level: number }; staff: { name: string }; dayOfWeek: number | null; startTime: string | null; endTime: string | null }[]>([])
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [enrolling, setEnrolling] = useState<number | null>(null)
+
+  async function openPicker() {
+    setLoading(true)
+    const res = await fetch('/api/classes')
+    if (res.ok) setClasses(await res.json())
+    setLoading(false)
+    setOpen(true)
+  }
+
+  async function enrol(classId: number) {
+    setEnrolling(classId)
+    await fetch(`/api/classes/${classId}/enrolments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId }),
+    })
+    setEnrolling(null)
+    setOpen(false)
+    setSearch('')
+    onEnrolled()
+  }
+
+  const available = classes.filter(c =>
+    !currentClassIds.includes(c.id) &&
+    `yr ${c.yearLevel.level} ${c.subject.name}`.toLowerCase().includes(search.toLowerCase())
+  )
+
+  if (!open) {
+    return (
+      <button
+        onClick={openPicker}
+        disabled={loading}
+        className="flex items-center gap-1.5 text-xs text-indigo-600 hover:underline mt-1"
+      >
+        <Plus className="h-3 w-3" />
+        {loading ? 'Loading…' : 'Enrol in class'}
+      </button>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-white shadow-sm mt-1 overflow-hidden">
+      <div className="flex items-center gap-1 p-2 border-b border-zinc-100">
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search classes…"
+          className="flex-1 rounded border border-zinc-200 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
+          autoFocus
+        />
+        <button onClick={() => { setOpen(false); setSearch('') }} className="rounded p-1 text-zinc-400 hover:bg-zinc-100">
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+      <div className="max-h-40 overflow-y-auto">
+        {available.length === 0 && (
+          <p className="px-3 py-2 text-xs text-zinc-400">{search ? 'No matching classes' : 'Already enrolled in all classes'}</p>
+        )}
+        {available.map(c => (
+          <button
+            key={c.id}
+            onClick={() => enrol(c.id)}
+            disabled={enrolling === c.id}
+            className="w-full text-left px-3 py-2 text-xs hover:bg-zinc-50 transition-colors flex items-center justify-between disabled:opacity-50"
+          >
+            <span className="font-medium text-zinc-800">Yr {c.yearLevel.level} {c.subject.name}</span>
+            <span className="text-zinc-400">
+              {c.dayOfWeek != null && `${DAY_NAMES[c.dayOfWeek]} ${c.startTime}–${c.endTime}`}
+              {' · '}{c.staff.name}
+            </span>
+          </button>
+        ))}
       </div>
     </div>
   )
