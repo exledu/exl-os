@@ -5,7 +5,9 @@ export async function GET() {
     include: { yearLevel: true, _count: { select: { enrolments: true } } },
     orderBy: [{ lastName: 'asc' }, { name: 'asc' }],
   })
-  return Response.json(students)
+  return Response.json(students, {
+    headers: { 'Cache-Control': 's-maxage=30, stale-while-revalidate=120' },
+  })
 }
 
 export async function POST(request: Request) {
