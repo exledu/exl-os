@@ -1,0 +1,201 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Subject {
+  id      Int     @id @default(autoincrement())
+  name    String  @unique
+  classes Class[]
+}
+
+model YearLevel {
+  id       Int       @id @default(autoincrement())
+  level    Int       @unique
+  classes  Class[]
+  students Student[]
+}
+
+model Room {
+  id      Int     @id @default(autoincrement())
+  name    String  @unique
+  classes Class[]
+}
+
+model Staff {
+  id       Int            @id @default(autoincrement())
+  name     String
+  email    String         @unique
+  phone    String?
+  roles    String[]       @default(["tutor"])
+  classes  Class[]
+  sessions ClassSession[]
+  actions  StaffAction[]
+
+  @@map("Tutor")
+}
+
+model StaffAction {
+  id          Int      @id @default(autoincrement())
+  staffId     Int
+  staff       Staff    @relation(fields: [staffId], references: [id])
+  type        String   // OS: "issue_resolved", "issue_note_added", "session_rescheduled", "session_staff_changed", "class_rescheduled", "student_note_updated", "term_initialised", "term_added"
+                       // Non-OS: "booklet_work", "student_message", "online_class"
+  automatic   Boolean  @default(true)  // true = OS-tracked, false = manually logged
+  description String
+  value       Float?   // for non-OS: hours or count
+  metadata    Json?    // for OS: { issueId, sessionId, classId, studentId, etc. }
+  createdAt   DateTime @default(now())
+}
+
+model Student {
+  id          Int         @id @default(autoincrement())
+  name        String
+  lastName    String?
+  email       String?
+  phone       String?
+  school      String?
+  yearLevelId Int
+  yearLevel   YearLevel   @relation(fields: [yearLevelId], references: [id])
+  parentFirstName String?
+  parentLastName  String?
+  parentEmail     String?
+  parentPhone     String?
+  notes       String?
+  enrolments  Enrolment[]
+  issues      Issue[]
+  invoices    Invoice[]
+  createdAt   DateTime    @default(now())
+}
+
+model Class {
+  id              Int            @id @default(autoincrement())
+  subjectId       Int
+  subject         Subject        @relation(fields: [subjectId], references: [id])
+  yearLevelId     Int
+  yearLevel       YearLevel      @relation(fields: [yearLevelId], references: [id])
+  staffId         Int            @map("tutorId")
+  staff           Staff          @relation(fields: [staffId], references: [id])
+  roomId          Int?
+  room            Room?          @relation(fields: [roomId], references: [id])
+  maxCapacity     Int
+  isRecurring     Boolean
+  dayOfWeek       Int?
+  startTime       String?
+  endTime         String?
+  recurrenceStart DateTime?
+  recurrenceEnd   DateTime?
+  sessionDate     DateTime?
+  enrolments      Enrolment[]
+  sessions        ClassSession[]
+  createdAt       DateTime       @default(now())
+}
+
+model ClassSession {
+  id        Int      @id @default(autoincrement())
+  classId   Int
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  date      DateTime @db.Date
+  startTime String
+  endTime   String
+  cancelled    Boolean   @default(false)
+  originalDate DateTime? @db.Date
+  staffId      Int?      @map("tutorId")
+  staff        Staff?    @relation(fields: [staffId], references: [id])
+}
+
+model Enrolment {
+  id         Int      @id @default(autoincrement())
+  studentId  Int
+  student    Student  @relation(fields: [studentId], references: [id])
+  classId    Int
+  class      Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  enrolledAt DateTime @default(now())
+
+  @@unique([studentId, classId])
+}
+
+enum IssueType {
+  FREE_TRIAL
+  CANCELLATION
+  RESCHEDULE
+  ENQUIRY
+}
+
+enum IssuePriority {
+  LOW
+  MEDIUM
+  URGENT
+}
+
+model Issue {
+  id             Int           @id @default(autoincrement())
+  type           IssueType
+  priority       IssuePriority @default(MEDIUM)
+  contactName    String
+  studentId      Int?
+  student        Student?      @relation(fields: [studentId], references: [id])
+  assignedTo     String?
+  note           String?
+  resolutionNote String?
+  resolved       Boolean       @default(false)
+  source         String?       // "manual" | "gmail"
+  rawEmail       String?       // raw snippet if sourced from email
+  gmailMessageId String?       @unique // Gmail message ID for deduplication
+  createdAt      DateTime      @default(now())
+  notes          IssueNote[]
+}
+
+model IssueNote {
+  id        Int      @id @default(autoincrement())
+  issueId   Int
+  issue     Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  author    String
+  content   String
+  isEmail   Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Invoice {
+  id          Int               @id @default(autoincrement())
+  studentId   Int
+  student     Student           @relation(fields: [studentId], references: [id])
+  subtotal    Float
+  discount    Float             @default(0)
+  total       Float
+  status      InvoiceStatus     @default(DRAFT)
+  sentAt      DateTime?
+  paidAt      DateTime?
+  createdAt   DateTime          @default(now())
+  lineItems   InvoiceLineItem[]
+}
+
+model InvoiceLineItem {
+  id          Int      @id @default(autoincrement())
+  invoiceId   Int
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  sessions    Int      // number of sessions being invoiced
+  unitPrice   Float    // price per session
+  amount      Float    // final amount (after pro-rata)
+  proRata     Boolean  @default(false)
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+}
+
+model OAuthToken {
+  id           Int       @id @default(autoincrement())
+  provider     String    @unique
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime?
+  updatedAt    DateTime  @updatedAt
+}

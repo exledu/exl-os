@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"/c/Users/willi/Desktop/EXL OS/exl-os\" && npm install jspdf --save 2>&1 | tail -5)",
+      "Bash(cd \"/c/Users/willi/Desktop/EXL OS/exl-os\" && npx prisma db push 2>&1 | tail -10)",
+      "Bash(cd \"/c/Users/willi/Desktop/EXL OS/exl-os\" && npx prisma generate 2>&1 | tail -5)",
+      "Bash(cd \"/c/Users/willi/Desktop/EXL OS/exl-os\" && npx next build 2>&1 | tail -30)",
+      "Bash(cd \"/c/Users/willi/Desktop/EXL OS/exl-os\" && npm uninstall jspdf 2>&1 | tail -3)",
+      "Bash(cd \"/c/Users/willi/Desktop/EXL OS/exl-os\" && ls app/api/invoices/ && ls app/api/invoices/\\\\[id\\\\]/send/)",
+      "Bash(cd \"/c/Users/willi/Desktop/EXL OS/exl-os\" && npx next build 2>&1 | tail -15)",
+      "Bash(cd \"/c/Users/willi/Desktop/EXL OS/exl-os\" && npx next build 2>&1 | tail -10)"
+    ]
+  }
+}
