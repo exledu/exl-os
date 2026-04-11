@@ -10,8 +10,9 @@ export async function PATCH(
   const body = await request.json()
   const { status } = body as { status: string }
 
-  if (status !== 'PAID' && status !== 'VOID') {
-    return Response.json({ error: 'Only PAID and VOID status transitions are supported' }, { status: 400 })
+  const ALLOWED = ['PAID', 'SENT', 'VOID'] as const
+  if (!ALLOWED.includes(status as typeof ALLOWED[number])) {
+    return Response.json({ error: 'Invalid status transition' }, { status: 400 })
   }
 
   const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } })
@@ -20,27 +21,35 @@ export async function PATCH(
     return Response.json({ error: 'Invoice not found' }, { status: 404 })
   }
 
-  // PAID: only from SENT
-  if (status === 'PAID' && invoice.status !== 'SENT') {
+  // Allowed transitions:
+  // SENT → PAID, PAID → SENT (unpay), SENT → VOID, DRAFT → VOID
+  const transitions: Record<string, string[]> = {
+    PAID: ['SENT'],          // can mark as paid from SENT
+    SENT: ['PAID'],          // can unpay back to SENT from PAID
+    VOID: ['SENT', 'DRAFT'], // can void from SENT or DRAFT
+  }
+
+  const allowed = transitions[status] ?? []
+  if (!allowed.includes(invoice.status)) {
     return Response.json(
-      { error: `Cannot mark as PAID: invoice is currently ${invoice.status}` },
+      { error: `Cannot change from ${invoice.status} to ${status}` },
       { status: 400 }
     )
   }
 
-  // VOID: from SENT or DRAFT (not from PAID or already VOID)
-  if (status === 'VOID' && invoice.status !== 'SENT' && invoice.status !== 'DRAFT') {
-    return Response.json(
-      { error: `Cannot void: invoice is currently ${invoice.status}` },
-      { status: 400 }
-    )
+  // Build update data
+  let data: Record<string, unknown>
+  if (status === 'PAID') {
+    data = { status: 'PAID', paidAt: new Date() }
+  } else if (status === 'SENT') {
+    data = { status: 'SENT', paidAt: null }
+  } else {
+    data = { status: 'VOID' }
   }
 
   const updated = await prisma.invoice.update({
     where: { id: invoiceId },
-    data: status === 'PAID'
-      ? { status: 'PAID', paidAt: new Date() }
-      : { status: 'VOID' },
+    data,
     include: {
       student: { include: { yearLevel: true } },
       lineItems: true,

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { Check, Square, Loader2, Search } from 'lucide-react'
+import { Check, Square, Search } from 'lucide-react'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,7 +53,6 @@ export function TermTracker() {
   const [students, setStudents]   = useState<TrackerStudent[]>([])
   const [invoices, setInvoices]   = useState<TrackerInvoice[]>([])
   const [loading, setLoading]     = useState(true)
-  const [updating, setUpdating]   = useState<number | null>(null) // invoice id being updated
   const [search, setSearch]       = useState('')
 
   // Load data
@@ -113,41 +112,6 @@ export function TermTracker() {
     )
   })
 
-  // Mark all SENT invoices in a cell as paid
-  async function markAllPaid(invoiceIds: number[]) {
-    if (updating || invoiceIds.length === 0) return
-    setUpdating(invoiceIds[0])
-
-    // Optimistic update
-    setInvoices(prev =>
-      prev.map(inv => invoiceIds.includes(inv.id) ? { ...inv, status: 'PAID' } : inv)
-    )
-
-    try {
-      const results = await Promise.all(
-        invoiceIds.map(id =>
-          fetch(`/api/invoices/${id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'PAID' }),
-          })
-        )
-      )
-      if (results.some(r => !r.ok)) {
-        // Revert all on any error
-        setInvoices(prev =>
-          prev.map(inv => invoiceIds.includes(inv.id) ? { ...inv, status: 'SENT' } : inv)
-        )
-      }
-    } catch {
-      setInvoices(prev =>
-        prev.map(inv => invoiceIds.includes(inv.id) ? { ...inv, status: 'SENT' } : inv)
-      )
-    } finally {
-      setUpdating(null)
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex h-96 items-center justify-center">
@@ -205,7 +169,6 @@ export function TermTracker() {
                   const key = `${student.id}-${col.year}-${col.term}`
                   const cell = invoiceLookup.get(key)
                   const cellStatus = cell?.status ?? 'none'
-                  const isUpdating = cell && cell.invoiceIds.length > 0 && updating === cell.invoiceIds[0]
 
                   return (
                     <td
@@ -218,22 +181,12 @@ export function TermTracker() {
                           <div className="h-9 w-full rounded-lg bg-gray-100" />
                         )}
 
-                        {/* 1+ sent but not all paid — yellow with checkbox */}
+                        {/* 1+ sent but not all paid — yellow */}
                         {cellStatus === 'sent' && (
-                          <button
-                            onClick={() => cell && markAllPaid(cell.invoiceIds)}
-                            disabled={!!isUpdating}
-                            className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-amber-50 border border-amber-200 transition-all hover:bg-amber-100 hover:border-amber-300 cursor-pointer disabled:cursor-wait"
-                          >
-                            {isUpdating ? (
-                              <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
-                            ) : (
-                              <>
-                                <Square className="h-4 w-4 text-amber-500" />
-                                <span className="text-[10px] font-medium text-amber-700">SENT</span>
-                              </>
-                            )}
-                          </button>
+                          <div className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-amber-50 border border-amber-200">
+                            <Square className="h-4 w-4 text-amber-500" />
+                            <span className="text-[10px] font-medium text-amber-700">SENT</span>
+                          </div>
                         )}
 
                         {/* All paid — green with check */}

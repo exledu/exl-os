@@ -506,6 +506,29 @@ export function InvoicingView() {
                   {studentInvoices.map(inv => (
                     <div key={inv.id} className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-2.5">
                       <div className="flex items-center gap-3">
+                        {/* Paid checkbox — toggle SENT ↔ PAID */}
+                        {(inv.status === 'SENT' || inv.status === 'PAID') && (
+                          <button
+                            onClick={async () => {
+                              const newStatus = inv.status === 'PAID' ? 'SENT' : 'PAID'
+                              const res = await fetch(`/api/invoices/${inv.id}`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ status: newStatus }),
+                              })
+                              if (res.ok) {
+                                setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, status: newStatus } : i))
+                              }
+                            }}
+                            className={`flex h-5 w-5 items-center justify-center rounded border-2 transition-colors ${
+                              inv.status === 'PAID'
+                                ? 'bg-emerald-500 border-emerald-500 text-white'
+                                : 'border-gray-300 hover:border-emerald-400'
+                            }`}
+                          >
+                            {inv.status === 'PAID' && <Check className="h-3 w-3" />}
+                          </button>
+                        )}
                         <span className="text-xs font-mono text-gray-500">#{String(inv.id).padStart(4, '0')}</span>
                         {inv.year && inv.term && (
                           <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
