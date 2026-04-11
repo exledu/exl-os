@@ -29,8 +29,10 @@ interface KpiData {
   termPayments: TermPayment[]
 }
 
+type NumericKpiKey = { [K in keyof KpiData]: KpiData[K] extends number ? K : never }[keyof KpiData]
+
 const KPIS: {
-  key: keyof KpiData
+  key: NumericKpiKey
   label: string
   icon: React.ElementType
   colour: string       // icon bg
