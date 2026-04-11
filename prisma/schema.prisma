@@ -193,6 +193,7 @@ enum InvoiceStatus {
   DRAFT
   SENT
   PAID
+  VOID
 }
 
 model OAuthToken {

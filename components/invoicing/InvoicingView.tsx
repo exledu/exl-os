@@ -115,6 +115,7 @@ const STATUS_STYLES: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-600',
   SENT:  'bg-blue-50 text-blue-700',
   PAID:  'bg-emerald-50 text-emerald-700',
+  VOID:  'bg-red-50 text-red-600',
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -301,6 +302,7 @@ export function InvoicingView() {
       localStorage.setItem('exl-last-year', String(invoiceYear))
       localStorage.setItem('exl-last-term', String(invoiceTerm))
       setSent(true)
+      setTimeout(() => setSent(false), 3000)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong')
     } finally {
@@ -515,7 +517,28 @@ export function InvoicingView() {
                           {inv.status}
                         </span>
                       </div>
-                      <span className="text-sm font-semibold text-gray-800">${inv.total.toFixed(2)}</span>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-sm font-semibold ${inv.status === 'VOID' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+                          ${inv.total.toFixed(2)}
+                        </span>
+                        {(inv.status === 'SENT' || inv.status === 'DRAFT') && (
+                          <button
+                            onClick={async () => {
+                              const res = await fetch(`/api/invoices/${inv.id}`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ status: 'VOID' }),
+                              })
+                              if (res.ok) {
+                                setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, status: 'VOID' } : i))
+                              }
+                            }}
+                            className="rounded px-2 py-0.5 text-[10px] font-medium text-red-500 hover:bg-red-50 hover:text-red-700 transition-colors"
+                          >
+                            Void
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>

@@ -29,7 +29,7 @@ interface TermColumn {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const STATUS_PRIORITY: Record<string, number> = { PAID: 3, SENT: 2, DRAFT: 1 }
+const STATUS_PRIORITY: Record<string, number> = { PAID: 4, SENT: 3, DRAFT: 2, VOID: 1 }
 
 function generateTermColumns(startYear: number, startTerm: number, count: number): TermColumn[] {
   const cols: TermColumn[] = []
@@ -231,6 +231,13 @@ export function TermTracker() {
                           <div className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-50 border border-emerald-200">
                             <Check className="h-4 w-4 text-emerald-600" />
                             <span className="text-[10px] font-medium text-emerald-700">PAID</span>
+                          </div>
+                        )}
+
+                        {/* VOID — red strikethrough */}
+                        {status === 'VOID' && (
+                          <div className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-red-50 border border-red-200">
+                            <span className="text-[10px] font-medium text-red-400 line-through">VOID</span>
                           </div>
                         )}
                       </div>

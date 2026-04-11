@@ -10,8 +10,8 @@ export async function PATCH(
   const body = await request.json()
   const { status } = body as { status: string }
 
-  if (status !== 'PAID') {
-    return Response.json({ error: 'Only marking as PAID is supported' }, { status: 400 })
+  if (status !== 'PAID' && status !== 'VOID') {
+    return Response.json({ error: 'Only PAID and VOID status transitions are supported' }, { status: 400 })
   }
 
   const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } })
@@ -20,16 +20,29 @@ export async function PATCH(
     return Response.json({ error: 'Invoice not found' }, { status: 404 })
   }
 
-  if (invoice.status !== 'SENT') {
+  // PAID: only from SENT
+  if (status === 'PAID' && invoice.status !== 'SENT') {
     return Response.json(
       { error: `Cannot mark as PAID: invoice is currently ${invoice.status}` },
       { status: 400 }
     )
   }
 
+  // VOID: from SENT or DRAFT (not from PAID or already VOID)
+  if (status === 'VOID' && invoice.status !== 'SENT' && invoice.status !== 'DRAFT') {
+    return Response.json(
+      { error: `Cannot void: invoice is currently ${invoice.status}` },
+      { status: 400 }
+    )
+  }
+
+  const data = status === 'PAID'
+    ? { status: 'PAID' as const, paidAt: new Date() }
+    : { status: 'VOID' as const }
+
   const updated = await prisma.invoice.update({
     where: { id: invoiceId },
-    data: { status: 'PAID', paidAt: new Date() },
+    data,
     include: {
       student: { include: { yearLevel: true } },
       lineItems: true,
