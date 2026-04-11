@@ -164,6 +164,8 @@ model Invoice {
   id          Int               @id @default(autoincrement())
   studentId   Int
   student     Student           @relation(fields: [studentId], references: [id])
+  year        Int?
+  term        Int?
   subtotal    Float
   discount    Float             @default(0)
   total       Float
@@ -172,6 +174,8 @@ model Invoice {
   paidAt      DateTime?
   createdAt   DateTime          @default(now())
   lineItems   InvoiceLineItem[]
+
+  @@index([year, term])
 }
 
 model InvoiceLineItem {

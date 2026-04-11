@@ -5,10 +5,18 @@ import {
   CalendarDays,
   Users,
   FlaskConical,
-  AlertCircle,
-  DoorOpen,
   ShieldAlert,
+  Receipt,
 } from 'lucide-react'
+
+interface TermPayment {
+  year: number
+  term: number
+  total: number
+  paid: number
+  sent: number
+  draft: number
+}
 
 interface KpiData {
   todaysClasses: number
@@ -18,6 +26,7 @@ interface KpiData {
   seatsAvailable: number
   totalClasses: number
   atRiskStudents: number
+  termPayments: TermPayment[]
 }
 
 const KPIS: {
@@ -50,21 +59,6 @@ const KPIS: {
     accent: 'text-[#704471]',
   },
   {
-    key: 'unresolvedIssues',
-    label: 'Open Issues',
-    icon: AlertCircle,
-    colour: 'bg-amber-50 text-amber-700',
-    accent: 'text-amber-700',
-  },
-  {
-    key: 'seatsAvailable',
-    label: 'Classes w/ Seats',
-    icon: DoorOpen,
-    colour: 'bg-emerald-50 text-emerald-700',
-    accent: 'text-emerald-700',
-    format: (v, d) => `${v}/${d.totalClasses}`,
-  },
-  {
     key: 'atRiskStudents',
     label: 'At-Risk Students',
     icon: ShieldAlert,
@@ -87,9 +81,9 @@ export function KpiStrip() {
   if (!data) {
     // Skeleton
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        {KPIS.map(k => (
-          <div key={k.key} className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm animate-pulse">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm animate-pulse">
             <div className="h-4 w-16 bg-gray-100 rounded mb-3" />
             <div className="h-7 w-10 bg-gray-100 rounded" />
           </div>
@@ -99,7 +93,7 @@ export function KpiStrip() {
   }
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
       {KPIS.map(({ key, label, icon: Icon, colour, accent, format }) => {
         const value = data[key]
         const display = format ? format(value, data) : String(value)
@@ -123,6 +117,65 @@ export function KpiStrip() {
           </div>
         )
       })}
+
+      {/* Term Payment KPI cards */}
+      {data.termPayments.map(tp => (
+        <div
+          key={`${tp.year}-${tp.term}`}
+          className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm hover:shadow-md transition-shadow duration-200"
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <div className="rounded-lg p-1.5 bg-indigo-50 text-indigo-700">
+              <Receipt className="h-3.5 w-3.5" />
+            </div>
+            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider leading-tight">
+              {tp.year} T{tp.term}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {/* Green circles = PAID */}
+            {Array.from({ length: tp.paid }).map((_, i) => (
+              <div key={`p${i}`} className="h-5 w-5 rounded-full bg-emerald-400" />
+            ))}
+            {/* Yellow circles = SENT */}
+            {Array.from({ length: tp.sent }).map((_, i) => (
+              <div key={`s${i}`} className="h-5 w-5 rounded-full bg-amber-300" />
+            ))}
+            {/* Grey circles = DRAFT */}
+            {Array.from({ length: tp.draft }).map((_, i) => (
+              <div key={`d${i}`} className="h-5 w-5 rounded-full bg-gray-200" />
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {/* Placeholder cards if fewer than 2 terms */}
+      {data.termPayments.length === 0 && Array.from({ length: 2 }).map((_, i) => (
+        <div key={`empty-${i}`} className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="rounded-lg p-1.5 bg-indigo-50 text-indigo-700">
+              <Receipt className="h-3.5 w-3.5" />
+            </div>
+            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider leading-tight">
+              Invoices
+            </span>
+          </div>
+          <p className="text-2xl font-bold text-gray-300">—</p>
+        </div>
+      ))}
+      {data.termPayments.length === 1 && (
+        <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="rounded-lg p-1.5 bg-indigo-50 text-indigo-700">
+              <Receipt className="h-3.5 w-3.5" />
+            </div>
+            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider leading-tight">
+              Invoices
+            </span>
+          </div>
+          <p className="text-2xl font-bold text-gray-300">—</p>
+        </div>
+      )}
     </div>
   )
 }

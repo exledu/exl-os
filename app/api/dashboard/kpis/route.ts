@@ -23,6 +23,7 @@ export async function GET(request: Request) {
     trialsToday,
     classesWithCapacity,
     atRiskStudents,
+    recentTermInvoices,
   ] = await Promise.all([
     // 1. Today's sessions (non-cancelled) with enrolled counts
     //    date is @db.Date — Prisma stores as midnight UTC, so exact match works
@@ -71,6 +72,16 @@ export async function GET(request: Request) {
       select: { studentId: true },
       distinct: ['studentId'],
     }),
+
+    // 6. Invoices with year/term set — for term payment KPI
+    prisma.invoice.findMany({
+      where: {
+        year: { not: null },
+        term: { not: null },
+      },
+      select: { year: true, term: true, status: true },
+      orderBy: [{ year: 'desc' }, { term: 'desc' }],
+    }),
   ])
 
   // Compute KPIs
@@ -83,6 +94,26 @@ export async function GET(request: Request) {
     (c) => c._count.enrolments < c.maxCapacity
   ).length
 
+  // Find the last 2 terms that had invoices sent
+  const termSet = new Map<string, { year: number; term: number }>()
+  for (const inv of recentTermInvoices) {
+    if (inv.year && inv.term) {
+      const key = `${inv.year}-${inv.term}`
+      if (!termSet.has(key)) termSet.set(key, { year: inv.year, term: inv.term })
+    }
+  }
+  const lastTwoTerms = Array.from(termSet.values()).slice(0, 2)
+
+  // For each term, count statuses
+  const termPayments = lastTwoTerms.map(t => {
+    const termInvs = recentTermInvoices.filter(i => i.year === t.year && i.term === t.term)
+    const total = termInvs.length
+    const paid = termInvs.filter(i => i.status === 'PAID').length
+    const sent = termInvs.filter(i => i.status === 'SENT').length
+    const draft = termInvs.filter(i => i.status === 'DRAFT').length
+    return { year: t.year, term: t.term, total, paid, sent, draft }
+  })
+
   return Response.json({
     todaysClasses,
     studentsToday,
@@ -91,5 +122,6 @@ export async function GET(request: Request) {
     seatsAvailable,
     totalClasses: classesWithCapacity.length,
     atRiskStudents: atRiskStudents.length,
+    termPayments,
   })
 }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { format } from 'date-fns'
-import { FileText, Send, Search, ChevronRight, DollarSign, Check, X, History, Bird, Tag, Minus, Plus, Eye } from 'lucide-react'
+import { FileText, Send, Search, ChevronRight, DollarSign, Check, X, History, Bird, Tag, Minus, Plus, Eye, Calendar } from 'lucide-react'
 import { subjectColour } from '@/lib/subject-colours'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -57,6 +57,8 @@ interface InvoiceRecord {
   id: number
   studentId: number
   student: { name: string; lastName: string | null; yearLevel: { level: number } }
+  year: number | null
+  term: number | null
   subtotal: number
   discount: number
   total: number
@@ -127,7 +129,40 @@ export function InvoicingView() {
 
   // Invoice builder
   const [lineItems, setLineItems]   = useState<LineItem[]>([])
-  const [earlyBird, setEarlyBird]   = useState(false)
+  const [earlyBird, setEarlyBird]   = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('exl-last-early-bird')
+      if (saved !== null) return saved === 'true'
+    }
+    return false
+  })
+  const [invoiceYear, setInvoiceYear] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('exl-last-year')
+      if (saved) return Number(saved)
+    }
+    return new Date().getFullYear()
+  })
+  const [invoiceTerm, setInvoiceTerm] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('exl-last-term')
+      if (saved) return Number(saved)
+    }
+    const m = new Date().getMonth()
+    if (m < 3) return 1
+    if (m < 6) return 2
+    if (m < 9) return 3
+    return 4
+  })
+  const [dueDate, setDueDate] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('exl-last-due-date')
+      if (saved) return saved
+    }
+    const d = new Date()
+    d.setDate(d.getDate() + 14)
+    return d.toISOString().split('T')[0]
+  })
   const [manualDiscount, setManualDiscount]         = useState(0)
   const [editingDiscount, setEditingDiscount]       = useState(false)
   const [discountInput, setDiscountInput]           = useState('')
@@ -232,6 +267,9 @@ export function InvoicingView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           studentId: detail.id,
+          year: invoiceYear,
+          term: invoiceTerm,
+          dueDate,
           lineItems: lineItems.map(li => ({
             description: lineItemDescription(earlyBird && li.earlyBirdDiscount > 0, li.yearLevel, li.subjectName, li.sessions),
             sessions: li.sessions,
@@ -254,6 +292,10 @@ export function InvoicingView() {
       }
       const updated: InvoiceRecord = await sendRes.json()
       setInvoices(prev => [updated, ...prev])
+      localStorage.setItem('exl-last-due-date', dueDate)
+      localStorage.setItem('exl-last-early-bird', String(earlyBird))
+      localStorage.setItem('exl-last-year', String(invoiceYear))
+      localStorage.setItem('exl-last-term', String(invoiceTerm))
       setSent(true)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong')
@@ -289,6 +331,9 @@ export function InvoicingView() {
           subtotal,
           discount: multiSubjectAmount + manualDiscount,
           total,
+          year: invoiceYear,
+          term: invoiceTerm,
+          dueDate,
         }),
       })
       if (res.ok) {
@@ -315,7 +360,7 @@ export function InvoicingView() {
   const studentInvoices = invoices.filter(inv => inv.studentId === selectedId)
 
   return (
-    <div className="flex h-[calc(100vh-48px)] gap-6">
+    <div className="flex h-[calc(100vh-120px)] gap-6">
       {/* ── Left Panel: Student List ── */}
       <div className="flex w-72 flex-col rounded-2xl bg-white shadow-sm border border-gray-100">
         <div className="border-b border-gray-100 px-4 py-3">
@@ -386,6 +431,40 @@ export function InvoicingView() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* Year & Term selectors */}
+                  <div className="flex items-center gap-1.5 rounded-lg bg-gray-50 border border-gray-200 px-2 py-1">
+                    <Calendar className="h-3.5 w-3.5 text-gray-400" />
+                    <select
+                      value={invoiceYear}
+                      onChange={e => setInvoiceYear(Number(e.target.value))}
+                      className="bg-transparent text-xs font-medium text-gray-700 focus:outline-none cursor-pointer"
+                    >
+                      {[invoiceYear - 1, invoiceYear, invoiceYear + 1, invoiceYear + 2].map(y => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={invoiceTerm}
+                      onChange={e => setInvoiceTerm(Number(e.target.value))}
+                      className="bg-transparent text-xs font-medium text-gray-700 focus:outline-none cursor-pointer"
+                    >
+                      {[1, 2, 3, 4].map(t => (
+                        <option key={t} value={t}>T{t}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Due date */}
+                  <div className="flex items-center gap-1.5 rounded-lg bg-gray-50 border border-gray-200 px-2 py-1">
+                    <span className="text-[10px] font-medium text-gray-400">DUE</span>
+                    <input
+                      type="date"
+                      value={dueDate}
+                      onChange={e => setDueDate(e.target.value)}
+                      className="bg-transparent text-xs font-medium text-gray-700 focus:outline-none cursor-pointer"
+                    />
+                  </div>
+
                   {/* Early Bird toggle */}
                   <button
                     onClick={() => setEarlyBird(!earlyBird)}
@@ -422,6 +501,11 @@ export function InvoicingView() {
                     <div key={inv.id} className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-2.5">
                       <div className="flex items-center gap-3">
                         <span className="text-xs font-mono text-gray-500">#{String(inv.id).padStart(4, '0')}</span>
+                        {inv.year && inv.term && (
+                          <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+                            {inv.year} T{inv.term}
+                          </span>
+                        )}
                         <span className="text-sm text-gray-700">{format(new Date(inv.createdAt), 'dd MMM yyyy')}</span>
                         <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_STYLES[inv.status]}`}>
                           {inv.status}
