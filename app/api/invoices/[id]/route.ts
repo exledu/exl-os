@@ -36,13 +36,11 @@ export async function PATCH(
     )
   }
 
-  const data = status === 'PAID'
-    ? { status: 'PAID' as const, paidAt: new Date() }
-    : { status: 'VOID' as const }
-
   const updated = await prisma.invoice.update({
     where: { id: invoiceId },
-    data,
+    data: status === 'PAID'
+      ? { status: 'PAID', paidAt: new Date() }
+      : { status: 'VOID' },
     include: {
       student: { include: { yearLevel: true } },
       lineItems: true,

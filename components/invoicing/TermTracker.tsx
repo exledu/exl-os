@@ -29,7 +29,7 @@ interface TermColumn {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const STATUS_PRIORITY: Record<string, number> = { PAID: 4, SENT: 3, DRAFT: 2, VOID: 1 }
+
 
 function generateTermColumns(startYear: number, startTerm: number, count: number): TermColumn[] {
   const cols: TermColumn[] = []
@@ -75,18 +75,32 @@ export function TermTracker() {
     return generateTermColumns(now.getFullYear(), startTerm, 8)
   }, [])
 
-  // Build lookup: "studentId-year-term" → best invoice
+  // Build lookup: "studentId-year-term" → aggregate status + list of invoice ids
+  // grey = no non-void invoices, yellow = 1+ sent/draft (not all paid), green = all paid
+  type CellData = { status: 'none' | 'sent' | 'paid'; invoiceIds: number[] }
+
   const invoiceLookup = useMemo(() => {
-    const map = new Map<string, TrackerInvoice>()
+    const map = new Map<string, TrackerInvoice[]>()
     for (const inv of invoices) {
-      if (inv.year == null || inv.term == null) continue
+      if (inv.year == null || inv.term == null || inv.status === 'VOID') continue
       const key = `${inv.studentId}-${inv.year}-${inv.term}`
-      const existing = map.get(key)
-      if (!existing || (STATUS_PRIORITY[inv.status] ?? 0) > (STATUS_PRIORITY[existing.status] ?? 0)) {
-        map.set(key, inv)
+      const arr = map.get(key) ?? []
+      arr.push(inv)
+      map.set(key, arr)
+    }
+    // Convert to aggregate status
+    const result = new Map<string, CellData>()
+    for (const [key, invs] of map) {
+      const nonVoid = invs.filter(i => i.status !== 'VOID')
+      if (nonVoid.length === 0) {
+        result.set(key, { status: 'none', invoiceIds: [] })
+      } else if (nonVoid.every(i => i.status === 'PAID')) {
+        result.set(key, { status: 'paid', invoiceIds: nonVoid.map(i => i.id) })
+      } else {
+        result.set(key, { status: 'sent', invoiceIds: nonVoid.filter(i => i.status === 'SENT').map(i => i.id) })
       }
     }
-    return map
+    return result
   }, [invoices])
 
   // Filter students by search
@@ -99,32 +113,35 @@ export function TermTracker() {
     )
   })
 
-  // Mark as paid
-  async function markPaid(invoice: TrackerInvoice) {
-    if (invoice.status !== 'SENT' || updating) return
-    setUpdating(invoice.id)
+  // Mark all SENT invoices in a cell as paid
+  async function markAllPaid(invoiceIds: number[]) {
+    if (updating || invoiceIds.length === 0) return
+    setUpdating(invoiceIds[0])
 
     // Optimistic update
     setInvoices(prev =>
-      prev.map(inv => inv.id === invoice.id ? { ...inv, status: 'PAID' } : inv)
+      prev.map(inv => invoiceIds.includes(inv.id) ? { ...inv, status: 'PAID' } : inv)
     )
 
     try {
-      const res = await fetch(`/api/invoices/${invoice.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'PAID' }),
-      })
-      if (!res.ok) {
-        // Revert on error
+      const results = await Promise.all(
+        invoiceIds.map(id =>
+          fetch(`/api/invoices/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'PAID' }),
+          })
+        )
+      )
+      if (results.some(r => !r.ok)) {
+        // Revert all on any error
         setInvoices(prev =>
-          prev.map(inv => inv.id === invoice.id ? { ...inv, status: 'SENT' } : inv)
+          prev.map(inv => invoiceIds.includes(inv.id) ? { ...inv, status: 'SENT' } : inv)
         )
       }
     } catch {
-      // Revert on error
       setInvoices(prev =>
-        prev.map(inv => inv.id === invoice.id ? { ...inv, status: 'SENT' } : inv)
+        prev.map(inv => invoiceIds.includes(inv.id) ? { ...inv, status: 'SENT' } : inv)
       )
     } finally {
       setUpdating(null)
@@ -186,9 +203,9 @@ export function TermTracker() {
                 {/* Term cells */}
                 {termColumns.map(col => {
                   const key = `${student.id}-${col.year}-${col.term}`
-                  const inv = invoiceLookup.get(key)
-                  const status = inv?.status ?? null
-                  const isUpdating = inv && updating === inv.id
+                  const cell = invoiceLookup.get(key)
+                  const cellStatus = cell?.status ?? 'none'
+                  const isUpdating = cell && cell.invoiceIds.length > 0 && updating === cell.invoiceIds[0]
 
                   return (
                     <td
@@ -196,22 +213,15 @@ export function TermTracker() {
                       className="px-3 py-3 border-b border-gray-100"
                     >
                       <div className="flex items-center justify-center">
-                        {/* No invoice — grey */}
-                        {!status && (
+                        {/* No invoices — grey */}
+                        {cellStatus === 'none' && (
                           <div className="h-9 w-full rounded-lg bg-gray-100" />
                         )}
 
-                        {/* DRAFT — grey with label */}
-                        {status === 'DRAFT' && (
-                          <div className="flex h-9 w-full items-center justify-center rounded-lg bg-gray-200">
-                            <span className="text-[10px] font-medium text-gray-500">DRAFT</span>
-                          </div>
-                        )}
-
-                        {/* SENT — yellow with checkbox */}
-                        {status === 'SENT' && (
+                        {/* 1+ sent but not all paid — yellow with checkbox */}
+                        {cellStatus === 'sent' && (
                           <button
-                            onClick={() => inv && markPaid(inv)}
+                            onClick={() => cell && markAllPaid(cell.invoiceIds)}
                             disabled={!!isUpdating}
                             className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-amber-50 border border-amber-200 transition-all hover:bg-amber-100 hover:border-amber-300 cursor-pointer disabled:cursor-wait"
                           >
@@ -226,18 +236,11 @@ export function TermTracker() {
                           </button>
                         )}
 
-                        {/* PAID — green with check */}
-                        {status === 'PAID' && (
+                        {/* All paid — green with check */}
+                        {cellStatus === 'paid' && (
                           <div className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-50 border border-emerald-200">
                             <Check className="h-4 w-4 text-emerald-600" />
                             <span className="text-[10px] font-medium text-emerald-700">PAID</span>
-                          </div>
-                        )}
-
-                        {/* VOID — red strikethrough */}
-                        {status === 'VOID' && (
-                          <div className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-red-50 border border-red-200">
-                            <span className="text-[10px] font-medium text-red-400 line-through">VOID</span>
                           </div>
                         )}
                       </div>
