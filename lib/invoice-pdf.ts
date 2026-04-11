@@ -10,6 +10,9 @@ interface LineItem {
 
 interface InvoiceData {
   id: number
+  year?: number | null
+  term?: number | null
+  dueDate?: string | null
   student: {
     name: string
     lastName: string | null
@@ -98,40 +101,10 @@ class PdfBuilder {
     const font2Obj = this.objectCount + 4
     const totalObjects = this.objectCount + 4
 
-    const offsets: number[] = []
-    let pdf = '%PDF-1.4\n'
-
-    // Write existing objects (streams and pages)
-    for (let i = 0; i < this.objects.length; i++) {
-      offsets.push(pdf.length)
-      pdf += `${i + 1} 0 obj\n${this.objects[i]}\nendobj\n`
-    }
-
-    // Catalog
-    offsets.push(pdf.length)
-    pdf += `${catalogObj} 0 obj\n<< /Type /Catalog /Pages ${pagesObj} 0 R >>\nendobj\n`
-
-    // Pages
     const kids = this.pages.map(p => `${p} 0 R`).join(' ')
-    offsets.push(pdf.length)
-    pdf += `${pagesObj} 0 obj\n<< /Type /Pages /Kids [${kids}] /Count ${this.pages.length} >>\nendobj\n`
 
-    // Fix page parent references
-    for (const pageObjNum of this.pages) {
-      const idx = pageObjNum - 1
-      this.objects[idx] = this.objects[idx].replace('/Parent 2 0 R', `/Parent ${pagesObj} 0 R`)
-    }
-
-    // Font 1: Helvetica
-    offsets.push(pdf.length)
-    pdf += `${font1Obj} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`
-
-    // Font 2: Helvetica-Bold
-    offsets.push(pdf.length)
-    pdf += `${font2Obj} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n`
-
-    // Now rebuild with correct parent refs
-    pdf = '%PDF-1.4\n'
+    // Build final PDF
+    let pdf = '%PDF-1.4\n'
     const finalOffsets: number[] = []
     for (let i = 0; i < this.objects.length; i++) {
       finalOffsets.push(pdf.length)
@@ -161,6 +134,23 @@ class PdfBuilder {
   }
 }
 
+// ── Word-wrap helper ─────────────────────────────────────────────────────────
+function wrapText(text: string, maxChars: number): string[] {
+  const words = text.split(' ')
+  const lines: string[] = []
+  let current = ''
+  for (const word of words) {
+    if (current && (current.length + 1 + word.length) > maxChars) {
+      lines.push(current)
+      current = word
+    } else {
+      current = current ? current + ' ' + word : word
+    }
+  }
+  if (current) lines.push(current)
+  return lines
+}
+
 export function generateInvoicePdf(invoice: InvoiceData): string {
   const pdf = new PdfBuilder()
   const margin = 50
@@ -168,25 +158,39 @@ export function generateInvoicePdf(invoice: InvoiceData): string {
   const rightEdge = pageWidth - margin
   let y = 0
 
-  // ── Header bar ──
-  pdf.rect(0, 0, pageWidth, 60, 0, 47, 103)
-  pdf.text(margin, 25, 'EXL Education', 20, true, 255, 255, 255)
-  pdf.text(margin, 42, 'Tutoring Centre', 9, false, 180, 210, 255)
-  pdf.textRight(rightEdge, 25, 'admin@exleducation.com.au', 9, false, 200, 220, 255)
+  const invoiceNo = String(invoice.id).padStart(4, '0')
+  const year = invoice.year ?? new Date().getFullYear()
+  const term = invoice.term ?? 1
 
-  y = 85
+  // ── Header bar ──
+  pdf.rect(0, 0, pageWidth, 70, 0, 47, 103)
+  pdf.text(margin, 25, 'EXL Education', 20, true, 255, 255, 255)
+  pdf.text(margin, 45, `INVOICE NO. ${invoiceNo}`, 9, false, 180, 210, 255)
+
+  // Due date on right side of header
+  if (invoice.dueDate) {
+    const dueDateShort = new Date(invoice.dueDate + 'T00:00:00').toLocaleDateString('en-AU', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+    })
+    pdf.textRight(rightEdge, 30, `DUE ${dueDateShort}`, 14, true, 255, 255, 255)
+  }
+
+  pdf.textRight(rightEdge, 50, 'admin@exleducation.com.au', 8, false, 200, 220, 255)
+
+  y = 95
 
   // ── Invoice title + meta ──
   pdf.text(margin, y, 'INVOICE', 18, true, 0, 47, 103)
   const dateStr = format(new Date(invoice.createdAt), 'dd MMM yyyy')
-  pdf.textRight(rightEdge, y - 5, `Invoice #${String(invoice.id).padStart(4, '0')}`, 10, false, 100, 100, 100)
-  pdf.textRight(rightEdge, y + 8, `Date: ${dateStr}`, 10, false, 100, 100, 100)
+  pdf.textRight(rightEdge, y - 5, `Invoice #${invoiceNo}`, 10, false, 100, 100, 100)
+  pdf.textRight(rightEdge, y + 10, `Date: ${dateStr}`, 10, false, 100, 100, 100)
+  pdf.textRight(rightEdge, y + 25, `Term: ${year} T${term}`, 10, false, 100, 100, 100)
 
-  y += 35
+  y += 50
 
   // ── Bill To ──
   pdf.text(margin, y, 'Bill To:', 11, true, 0, 47, 103)
-  y += 16
+  y += 18
 
   const studentName = `${invoice.student.name}${invoice.student.lastName ? ' ' + invoice.student.lastName : ''}`
   const parentName = invoice.student.parentFirstName
@@ -195,62 +199,93 @@ export function generateInvoicePdf(invoice: InvoiceData): string {
 
   if (parentName) {
     pdf.text(margin, y, parentName, 10, false, 50, 50, 50)
-    y += 14
+    y += 16
   }
   pdf.text(margin, y, `Student: ${studentName} (Year ${invoice.student.yearLevel.level})`, 10, false, 50, 50, 50)
-  y += 14
+  y += 16
   const email = invoice.student.parentEmail || invoice.student.email
   if (email) {
     pdf.text(margin, y, email, 10, false, 50, 50, 50)
-    y += 14
+    y += 16
   }
 
-  y += 10
+  y += 16
 
   // ── Table header ──
-  pdf.rect(margin, y - 4, rightEdge - margin, 20, 0, 47, 103)
-  pdf.text(margin + 8, y + 8, 'Description', 9, true, 255, 255, 255)
-  pdf.text(330, y + 8, 'Sessions', 9, true, 255, 255, 255)
-  pdf.text(400, y + 8, 'Unit Price', 9, true, 255, 255, 255)
-  pdf.text(490, y + 8, 'Amount', 9, true, 255, 255, 255)
-  y += 26
+  const colDesc = margin + 8
+  const colSessions = 340
+  const colUnit = 410
+  const colAmount = 490
+
+  pdf.rect(margin, y - 4, rightEdge - margin, 22, 0, 47, 103)
+  pdf.text(colDesc, y + 9, 'Description', 9, true, 255, 255, 255)
+  pdf.text(colSessions, y + 9, 'Sessions', 9, true, 255, 255, 255)
+  pdf.text(colUnit, y + 9, 'Unit Price', 9, true, 255, 255, 255)
+  pdf.text(colAmount, y + 9, 'Amount', 9, true, 255, 255, 255)
+  y += 30
 
   // ── Line items ──
   for (const li of invoice.lineItems) {
     const desc = li.proRata ? `${li.description} (Pro-rated)` : li.description
-    pdf.text(margin + 8, y, desc, 10, false, 50, 50, 50)
-    pdf.text(345, y, String(li.sessions), 10, false, 50, 50, 50)
-    pdf.text(410, y, `$${li.unitPrice.toFixed(2)}`, 10, false, 50, 50, 50)
-    pdf.textRight(rightEdge - 8, y, `$${li.amount.toFixed(2)}`, 10, false, 50, 50, 50)
-    y += 8
+    // Word-wrap description to fit before Sessions column
+    const maxChars = 48
+    const lines = wrapText(desc, maxChars)
+
+    for (let i = 0; i < lines.length; i++) {
+      pdf.text(colDesc, y, lines[i], 9, false, 50, 50, 50)
+      if (i === 0) {
+        // Only show numbers on first line
+        pdf.text(colSessions + 15, y, String(li.sessions), 9, false, 50, 50, 50)
+        pdf.text(colUnit, y, `$${li.unitPrice.toFixed(2)}`, 9, false, 50, 50, 50)
+        pdf.textRight(rightEdge - 8, y, `$${li.amount.toFixed(2)}`, 9, false, 50, 50, 50)
+      }
+      y += 14
+    }
+
     pdf.line(margin, y, rightEdge, y, 220, 220, 220)
-    y += 14
+    y += 10
   }
 
-  y += 8
+  y += 12
 
   // ── Totals ──
-  pdf.text(410, y, 'Subtotal', 10, false, 100, 100, 100)
+  pdf.text(colUnit, y, 'Subtotal', 10, false, 100, 100, 100)
   pdf.textRight(rightEdge - 8, y, `$${invoice.subtotal.toFixed(2)}`, 10, false, 50, 50, 50)
-  y += 16
+  y += 18
 
   if (invoice.discount > 0) {
-    pdf.text(410, y, 'Discount', 10, false, 22, 163, 74)
+    pdf.text(colUnit, y, 'Discount', 10, false, 22, 163, 74)
     pdf.textRight(rightEdge - 8, y, `-$${invoice.discount.toFixed(2)}`, 10, false, 22, 163, 74)
-    y += 16
+    y += 18
   }
 
-  pdf.line(400, y, rightEdge, y, 0, 47, 103)
-  y += 10
+  pdf.line(colUnit - 10, y, rightEdge, y, 0, 47, 103)
+  y += 14
 
-  pdf.text(410, y, 'Total', 14, true, 0, 47, 103)
+  pdf.text(colUnit, y, 'Total', 14, true, 0, 47, 103)
   pdf.textRight(rightEdge - 8, y, `$${invoice.total.toFixed(2)}`, 14, true, 0, 47, 103)
 
-  y += 40
+  y += 50
+
+  // ── Payment details ──
+  pdf.text(margin, y, 'Payment Methods:', 10, true, 0, 47, 103)
+  y += 18
+  pdf.text(margin, y, 'Cash on campus or Bank Transfer:', 9, false, 80, 80, 80)
+  y += 16
+  pdf.text(margin + 20, y, 'Account Name:', 9, false, 120, 120, 120)
+  pdf.text(margin + 110, y, 'EXL Education', 9, true, 50, 50, 50)
+  y += 14
+  pdf.text(margin + 20, y, 'BSB:', 9, false, 120, 120, 120)
+  pdf.text(margin + 110, y, '067-873', 9, true, 50, 50, 50)
+  y += 14
+  pdf.text(margin + 20, y, 'Account Number:', 9, false, 120, 120, 120)
+  pdf.text(margin + 110, y, '1219 8062', 9, true, 50, 50, 50)
+
+  y += 30
 
   // ── Footer ──
   pdf.text(margin, y, 'Thank you for choosing EXL Education.', 9, false, 150, 150, 150)
-  pdf.text(margin, y + 12, 'Please direct any queries to admin@exleducation.com.au', 9, false, 150, 150, 150)
+  pdf.text(margin, y + 14, 'Please direct any queries to admin@exleducation.com.au', 9, false, 150, 150, 150)
 
   return pdf.build().toString('base64')
 }

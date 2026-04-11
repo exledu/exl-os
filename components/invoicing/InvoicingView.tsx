@@ -285,7 +285,11 @@ export function InvoicingView() {
 
       setSending(true)
       setCreating(false)
-      const sendRes = await fetch(`/api/invoices/${invoice.id}/send`, { method: 'POST' })
+      const sendRes = await fetch(`/api/invoices/${invoice.id}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dueDate }),
+      })
       if (!sendRes.ok) {
         const err = await sendRes.json()
         throw new Error(err.error || 'Failed to send invoice')

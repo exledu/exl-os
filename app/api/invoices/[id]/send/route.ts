@@ -10,6 +10,15 @@ export async function POST(
   const { id } = await params
   const invoiceId = Number(id)
 
+  // Read optional dueDate from request body
+  let dueDate: string | null = null
+  try {
+    const body = await request.json()
+    dueDate = body.dueDate ?? null
+  } catch {
+    // No body provided — that's fine
+  }
+
   const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
     include: {
@@ -22,14 +31,14 @@ export async function POST(
     return Response.json({ error: 'Invoice not found' }, { status: 404 })
   }
 
-  const { subject, html: htmlBody, recipientEmail } = buildInvoiceEmailHtml(invoice)
+  const { subject, html: htmlBody, recipientEmail } = buildInvoiceEmailHtml({ ...invoice, dueDate })
 
   if (!recipientEmail) {
     return Response.json({ error: 'No email address found for student or parent' }, { status: 400 })
   }
 
   // Generate PDF
-  const pdfBase64 = generateInvoicePdf(invoice)
+  const pdfBase64 = generateInvoicePdf({ ...invoice, dueDate })
 
   // Get OAuth tokens for sending
   const token = await prisma.oAuthToken.findUnique({ where: { provider: 'google' } })
