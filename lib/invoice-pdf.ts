@@ -37,6 +37,14 @@ class PdfBuilder {
   private pages: number[] = []
   private currentStream = ''
   private objectCount = 0
+  private font1Obj: number
+  private font2Obj: number
+
+  constructor() {
+    // Reserve font objects FIRST so pages can reference them by known IDs
+    this.font1Obj = this.addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>')
+    this.font2Obj = this.addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>')
+  }
 
   private addObject(content: string): number {
     this.objectCount++
@@ -80,9 +88,9 @@ class PdfBuilder {
     const streamObj = this.addObject(
       `<< /Length ${this.currentStream.length} >>\nstream\n${this.currentStream}endstream`
     )
-    // Page object
+    // Page object — reference the actual font object IDs
     const pageObj = this.addObject(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ${streamObj} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> >>`
+      `<< /Type /Page /Parent PAGES_REF /MediaBox [0 0 595 842] /Contents ${streamObj} 0 R /Resources << /Font << /F1 ${this.font1Obj} 0 R /F2 ${this.font2Obj} 0 R >> >> >>`
     )
     this.pages.push(pageObj)
     this.currentStream = ''
@@ -91,15 +99,10 @@ class PdfBuilder {
   build(): Buffer {
     this.finishPage()
 
-    // Object 1: Catalog
-    // Object 2: Pages
-    // Object 3: Helvetica font
-    // Object 4: Helvetica-Bold font
+    // Catalog and Pages are appended after all page/stream/font objects
     const catalogObj = this.objectCount + 1
     const pagesObj = this.objectCount + 2
-    const font1Obj = this.objectCount + 3
-    const font2Obj = this.objectCount + 4
-    const totalObjects = this.objectCount + 4
+    const totalObjects = this.objectCount + 2
 
     const kids = this.pages.map(p => `${p} 0 R`).join(' ')
 
@@ -108,17 +111,14 @@ class PdfBuilder {
     const finalOffsets: number[] = []
     for (let i = 0; i < this.objects.length; i++) {
       finalOffsets.push(pdf.length)
-      const obj = this.objects[i].replace('/Parent 2 0 R', `/Parent ${pagesObj} 0 R`)
+      // Replace the parent placeholder with the actual Pages object reference
+      const obj = this.objects[i].replace('PAGES_REF', `${pagesObj} 0 R`)
       pdf += `${i + 1} 0 obj\n${obj}\nendobj\n`
     }
     finalOffsets.push(pdf.length)
     pdf += `${catalogObj} 0 obj\n<< /Type /Catalog /Pages ${pagesObj} 0 R >>\nendobj\n`
     finalOffsets.push(pdf.length)
     pdf += `${pagesObj} 0 obj\n<< /Type /Pages /Kids [${kids}] /Count ${this.pages.length} >>\nendobj\n`
-    finalOffsets.push(pdf.length)
-    pdf += `${font1Obj} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n`
-    finalOffsets.push(pdf.length)
-    pdf += `${font2Obj} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>\nendobj\n`
 
     // Cross-reference table
     const xrefOffset = pdf.length
