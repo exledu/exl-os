@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
 import { FileText, Send, Search, ChevronRight, DollarSign, Check, X, History, Bird, Tag, Minus, Plus, Eye, Calendar } from 'lucide-react'
 import { subjectColour } from '@/lib/subject-colours'
@@ -185,10 +185,17 @@ export function InvoicingView() {
   const [loadingPreview, setLoadingPreview]   = useState(false)
 
   // ── Load students ──
-  useEffect(() => {
-    fetch('/api/students').then(r => r.json()).then(setStudents)
-    fetch('/api/invoices').then(r => r.json()).then(setInvoices)
+  const loadStudents = useCallback(() => {
+    fetch('/api/students').then(r => { if (r.ok) return r.json(); throw new Error('Failed to load students') }).then(setStudents).catch(() => {})
+    fetch('/api/invoices').then(r => { if (r.ok) return r.json(); throw new Error('Failed to load invoices') }).then(setInvoices).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    loadStudents()
+    const onVisible = () => { if (document.visibilityState === 'visible') loadStudents() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [loadStudents])
 
   // ── Recalculate line items when early bird toggles ──
   useEffect(() => {
@@ -216,6 +223,7 @@ export function InvoicingView() {
     setShowHistory(false)
     try {
       const res = await fetch(`/api/students/${id}`)
+      if (!res.ok) throw new Error('Failed to load student details')
       const data: StudentDetail = await res.json()
       setDetail(data)
       // Auto-populate line items from enrolled classes
@@ -234,6 +242,8 @@ export function InvoicingView() {
           }
         })
       )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load student')
     } finally {
       setLoading(false)
     }
@@ -292,8 +302,9 @@ export function InvoicingView() {
         body: JSON.stringify({ dueDate }),
       })
       if (!sendRes.ok) {
-        const err = await sendRes.json()
-        throw new Error(err.error || 'Failed to send invoice')
+        let errMsg = 'Failed to send invoice'
+        try { const err = await sendRes.json(); errMsg = err.error || errMsg } catch {}
+        throw new Error(errMsg)
       }
       const updated: InvoiceRecord = await sendRes.json()
       setInvoices(prev => [updated, ...prev])
