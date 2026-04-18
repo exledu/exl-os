@@ -117,3 +117,37 @@ export async function getBotUserId() {
   const data = await slackApi('auth.test', {})
   return data.user_id as string | undefined
 }
+
+// ── Cached email lookup ─────────────────────────────────────────────────────
+
+let emailCache: Map<string, string> | null = null
+let cacheExpiry = 0
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+async function refreshEmailCache(): Promise<Map<string, string>> {
+  const now = Date.now()
+  if (emailCache && now < cacheExpiry) return emailCache
+
+  const data = await slackApi('users.list', {})
+  const map = new Map<string, string>()
+  if (data.ok && data.members) {
+    for (const m of data.members) {
+      if (m.profile?.email) {
+        map.set(m.id, m.profile.email)
+      }
+    }
+  }
+
+  if (map.size > 0) {
+    emailCache = map
+    cacheExpiry = now + CACHE_TTL
+  }
+
+  return map
+}
+
+/** Get a Slack user's email by ID. Cached for 5 minutes. */
+export async function getSlackUserEmail(userId: string): Promise<string | null> {
+  const cache = await refreshEmailCache()
+  return cache.get(userId) ?? null
+}
