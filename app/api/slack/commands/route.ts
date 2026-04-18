@@ -1,6 +1,8 @@
 import { verifySlackSignature, getUserInfo, openModal } from '@/lib/slack'
 import { prisma } from '@/lib/db'
-import { format } from 'date-fns'
+import { format, parse, startOfDay, endOfDay } from 'date-fns'
+
+export const maxDuration = 30
 
 export async function POST(request: Request) {
   const rawBody = await request.text()
@@ -15,82 +17,103 @@ export async function POST(request: Request) {
   const triggerId = params.get('trigger_id')!
   const slackUserId = params.get('user_id')!
 
-  // Check if admin is submitting on behalf of a tutor: /cover tutor@email.com
+  // Parse command text: /cover [email] [date]
+  // Examples: /cover, /cover 23/4, /cover tutor@email.com, /cover tutor@email.com 23/4
   const commandText = (params.get('text') ?? '').trim()
+  const parts = commandText.split(/\s+/).filter(Boolean)
   const adminEmail = (process.env.ADMIN_EMAIL ?? '').toLowerCase()
-  let staffEmail: string
 
-  if (commandText && commandText.includes('@')) {
-    // Admin override — verify caller is admin
-    const slackUser = await getUserInfo(slackUserId)
-    const callerEmail = slackUser?.profile?.email?.toLowerCase() ?? ''
+  let staffEmail: string | null = null
+  let filterDate: Date | null = null
 
-    // Allow if caller email matches admin, OR if we can't read email but the Slack
-    // workspace only has the admin using this command (fallback for email scope issues)
-    if (callerEmail && callerEmail !== adminEmail) {
-      return new Response(
-        JSON.stringify({ response_type: 'ephemeral', text: '❌ Only admins can submit cover requests on behalf of a tutor.' }),
-        { headers: { 'Content-Type': 'application/json' } }
-      )
+  for (const part of parts) {
+    if (part.includes('@')) {
+      // Email argument — admin override
+      const slackUser = await getUserInfo(slackUserId)
+      const callerEmail = slackUser?.profile?.email?.toLowerCase() ?? ''
+      if (callerEmail && callerEmail !== adminEmail) {
+        return ephemeral('❌ Only admins can submit cover requests on behalf of a tutor.')
+      }
+      staffEmail = part.toLowerCase()
+    } else {
+      // Try to parse as a date (d/M, dd/MM, dd/MM/yyyy)
+      const parsed = tryParseDate(part)
+      if (parsed) {
+        filterDate = parsed
+      }
     }
-    staffEmail = commandText.toLowerCase()
-  } else {
-    // Normal tutor flow — look up their own email
+  }
+
+  // If no email provided, look up caller's own email
+  if (!staffEmail) {
     const slackUser = await getUserInfo(slackUserId)
     const callerEmail = slackUser?.profile?.email
     if (!callerEmail) {
-      return new Response(
-        JSON.stringify({ response_type: 'ephemeral', text: '❌ Could not find your email in Slack. Make sure your Slack profile has an email set.' }),
-        { headers: { 'Content-Type': 'application/json' } }
-      )
+      return ephemeral('❌ Could not find your email in Slack. Make sure your Slack profile has an email set.')
     }
     staffEmail = callerEmail.toLowerCase()
   }
 
   const staff = await prisma.staff.findUnique({ where: { email: staffEmail } })
   if (!staff) {
-    return new Response(
-      JSON.stringify({ response_type: 'ephemeral', text: `❌ No staff member found in EXL OS with email ${staffEmail}.` }),
-      { headers: { 'Content-Type': 'application/json' } }
-    )
+    return ephemeral(`❌ No staff member found in EXL OS with email ${staffEmail}.`)
   }
 
-  // Find upcoming sessions for this staff member (next 14 days)
+  // Query sessions — either for specific date or next 14 days
   const now = new Date()
-  const twoWeeksOut = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)
+  const dateStart = filterDate ? startOfDay(filterDate) : now
+  const dateEnd = filterDate ? endOfDay(filterDate) : new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)
 
-  const sessions = await prisma.classSession.findMany({
-    where: {
-      cancelled: false,
-      date: { gte: now, lte: twoWeeksOut },
-      class: { staffId: staff.id },
-      // Exclude sessions already covered by someone else
-      OR: [{ staffId: null }, { staffId: staff.id }],
-    },
-    include: {
-      class: {
-        include: { subject: true, yearLevel: true, room: true },
-      },
-    },
-    orderBy: { date: 'asc' },
-  })
+  const sessions = filterDate
+    ? // When filtering by date, show ALL sessions on that day (any staff)
+      await prisma.classSession.findMany({
+        where: {
+          cancelled: false,
+          date: { gte: dateStart, lte: dateEnd },
+          OR: [{ staffId: null }, { staffId: { not: null } }],
+        },
+        include: {
+          class: { include: { subject: true, yearLevel: true, room: true, staff: true } },
+        },
+        orderBy: { date: 'asc' },
+      })
+    : // Default: show only this staff's sessions
+      await prisma.classSession.findMany({
+        where: {
+          cancelled: false,
+          date: { gte: dateStart, lte: dateEnd },
+          class: { staffId: staff.id },
+          OR: [{ staffId: null }, { staffId: staff.id }],
+        },
+        include: {
+          class: { include: { subject: true, yearLevel: true, room: true, staff: true } },
+        },
+        orderBy: { date: 'asc' },
+      })
 
   if (sessions.length === 0) {
-    return new Response(
-      JSON.stringify({ response_type: 'ephemeral', text: '📅 You have no upcoming sessions in the next 2 weeks to request cover for.' }),
-      { headers: { 'Content-Type': 'application/json' } }
-    )
+    const dateMsg = filterDate
+      ? `on ${format(filterDate, 'EEE d MMM')}`
+      : 'in the next 2 weeks'
+    return ephemeral(`📅 No sessions found ${dateMsg}.`)
   }
 
   // Build modal with session dropdown
   const options = sessions.map(s => {
     const dateStr = format(s.date, 'EEE d MMM')
-    const label = `Yr ${s.class.yearLevel.level} ${s.class.subject.name} — ${dateStr}, ${s.startTime}–${s.endTime}`
+    const staffName = s.class.staff?.name ?? 'Unassigned'
+    const label = filterDate
+      ? `${staffName} — Yr ${s.class.yearLevel.level} ${s.class.subject.name}, ${s.startTime}–${s.endTime}`
+      : `Yr ${s.class.yearLevel.level} ${s.class.subject.name} — ${dateStr}, ${s.startTime}–${s.endTime}`
     return {
       text: { type: 'plain_text' as const, text: label.slice(0, 75) },
       value: String(s.id),
     }
   })
+
+  const headerText = filterDate
+    ? `Sessions on ${format(filterDate, 'EEEE d MMMM')}:`
+    : 'Select the session you need covered:'
 
   const view = {
     type: 'modal',
@@ -102,7 +125,7 @@ export async function POST(request: Request) {
     blocks: [
       {
         type: 'section',
-        text: { type: 'mrkdwn', text: 'Select the session you need covered:' },
+        text: { type: 'mrkdwn', text: headerText },
       },
       {
         type: 'input',
@@ -130,7 +153,26 @@ export async function POST(request: Request) {
   }
 
   await openModal(triggerId, view)
-
-  // Must return 200 within 3s
   return new Response('', { status: 200 })
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function ephemeral(text: string) {
+  return new Response(
+    JSON.stringify({ response_type: 'ephemeral', text }),
+    { headers: { 'Content-Type': 'application/json' } }
+  )
+}
+
+function tryParseDate(input: string): Date | null {
+  // Support: 23/4, 23/04, 23/4/2026, 23/04/2026
+  const formats = ['d/M/yyyy', 'd/M', 'dd/MM/yyyy', 'dd/MM']
+  for (const fmt of formats) {
+    try {
+      const parsed = parse(input, fmt, new Date())
+      if (!isNaN(parsed.getTime())) return parsed
+    } catch { /* try next format */ }
+  }
+  return null
 }
