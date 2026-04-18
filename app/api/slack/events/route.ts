@@ -49,9 +49,15 @@ async function handleCoverReaction(event: {
   const botUserId = await getBotUserId()
   if (reactingUserId === botUserId) return
 
+  // DEBUG: post to channel so we can see the event is received
+  await postMessage(item.channel, `🔍 Debug: reaction received from <@${reactingUserId}>, fetching message...`, { thread_ts: item.ts })
+
   // Fetch the message to get metadata
   const message = await fetchMessage(item.channel, item.ts)
-  if (!message?.metadata || message.metadata.event_type !== 'cover_request') return
+  if (!message?.metadata || message.metadata.event_type !== 'cover_request') {
+    await postMessage(item.channel, `🔍 Debug: no metadata found. hasMessage=${!!message}, hasMetadata=${!!message?.metadata}`, { thread_ts: item.ts })
+    return
+  }
 
   const { sessionId, requesterId, requesterSlackId, requesterName, className, dateStr, timeStr } =
     message.metadata.event_payload as {
