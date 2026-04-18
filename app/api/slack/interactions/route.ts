@@ -20,6 +20,7 @@ export async function POST(request: Request) {
   }
 
   const { staffId, staffName, slackUserId } = JSON.parse(payload.view.private_metadata)
+  const submitterId = payload.user.id as string
   const sessionId = Number(
     payload.view.state.values.session_select.session.selected_option.value
   )
@@ -44,14 +45,23 @@ export async function POST(request: Request) {
   const shortDate = format(session.date, 'EEE d MMM')
   const timeStr = `${session.startTime}–${session.endTime}`
 
+  // Check if admin submitted on behalf of a tutor
+  const staffRecord = await prisma.staff.findUnique({ where: { id: staffId }, select: { email: true } })
+  const adminEmail = (process.env.ADMIN_EMAIL ?? '').toLowerCase()
+  const isOnBehalf = staffRecord?.email?.toLowerCase() !== adminEmail && slackUserId === submitterId
+
+  const requestedBy = isOnBehalf
+    ? `Requested by <@${submitterId}> for ${staffName}`
+    : `Requested by ${staffName}`
+
   const blocks = [
     {
       type: 'section',
-      text: { type: 'mrkdwn', text: `🔄 *Cover Needed*\n\n*${className}* — ${shortDate}, ${timeStr}\nRequested by ${staffName}${note ? `\n\n_${note}_` : ''}\n\nReact ✅ to cover this session.` },
+      text: { type: 'mrkdwn', text: `🔄 *Cover Needed*\n\n*${className}* — ${shortDate}, ${timeStr}\n${requestedBy}${note ? `\n\n_${note}_` : ''}\n\nReact ✅ to cover this session.` },
     },
   ]
 
-  const fallbackText = `🔄 Cover Needed: ${className} — ${shortDate}, ${timeStr}. Requested by ${staffName}. React ✅ to cover.`
+  const fallbackText = `🔄 Cover Needed: ${className} — ${shortDate}, ${timeStr}. ${requestedBy}. React ✅ to cover.`
 
   const result = await postMessage(channelId, fallbackText, {
     blocks,
