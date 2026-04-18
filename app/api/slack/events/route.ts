@@ -31,6 +31,14 @@ export async function POST(request: Request) {
         console.error('Cover reaction handler error:', err)
       }
     }
+
+    if (event.type === 'reaction_added' && event.reaction === 'x') {
+      try {
+        await handleCoverRetract(event)
+      } catch (err) {
+        console.error('Cover retract handler error:', err)
+      }
+    }
   }
 
   return NextResponse.json({ ok: true })
@@ -155,5 +163,64 @@ async function handleCoverReaction(event: {
   await sendDM(
     reactingUserId,
     `✅ You're now covering ${className} on ${dateStr}, ${timeStr} for ${requesterName}. The timetable has been updated.`
+  )
+}
+
+// ── Handle ❌ reaction to retract a cover request ───────────────────────────
+
+async function handleCoverRetract(event: {
+  user: string
+  item: { type: string; channel: string; ts: string }
+}) {
+  const { user: reactingUserId, item } = event
+  if (item.type !== 'message') return
+
+  const channelId = process.env.SLACK_COVERS_CHANNEL_ID!
+  if (item.channel !== channelId) return
+
+  // Ignore bot's own reactions
+  const botUserId = await getBotUserId()
+  if (reactingUserId === botUserId) return
+
+  // Fetch the message to get metadata
+  const message = await fetchMessage(item.channel, item.ts)
+  if (!message?.metadata || message.metadata.event_type !== 'cover_request') return
+
+  const { sessionId, requesterId, requesterSlackId, requesterName, className, dateStr, timeStr } =
+    message.metadata.event_payload as {
+      sessionId: number
+      requesterId: number
+      requesterSlackId: string
+      requesterName: string
+      className: string
+      dateStr: string
+      timeStr: string
+    }
+
+  // Only the requester (or admin who posted on their behalf) can retract
+  if (reactingUserId !== requesterSlackId) {
+    await postMessage(item.channel, `⚠️ <@${reactingUserId}> — only the person who requested this cover can retract it.`, {
+      thread_ts: item.ts,
+    })
+    return
+  }
+
+  // Revert session staff back to the class default (null = use class staffId)
+  await prisma.classSession.update({
+    where: { id: sessionId },
+    data: { staffId: null },
+  })
+
+  logAction({
+    staffId: requesterId,
+    type: 'session_staff_changed',
+    description: `Retracted cover request for ${className} on ${dateStr} (reverted to original tutor)`,
+    metadata: { sessionId, requesterId },
+  })
+
+  await postMessage(
+    item.channel,
+    `❌ Cover request for ${className} on ${dateStr}, ${timeStr} has been retracted by <@${reactingUserId}>. The session has been reverted to the original tutor.`,
+    { thread_ts: item.ts }
   )
 }
