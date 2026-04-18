@@ -1,12 +1,15 @@
 import { verifySlackSignature, getUserInfo, fetchMessage, postMessage, getBotUserId, sendDM } from '@/lib/slack'
 import { prisma } from '@/lib/db'
 import { logAction } from '@/lib/staff-actions'
+import { NextResponse } from 'next/server'
+
+export const maxDuration = 30
 
 export async function POST(request: Request) {
   const rawBody = await request.text()
   const payload = JSON.parse(rawBody)
 
-  // Slack URL verification challenge (one-time setup) — must respond before signature check
+  // Slack URL verification challenge
   if (payload.type === 'url_verification') {
     return Response.json({ challenge: payload.challenge })
   }
@@ -18,21 +21,20 @@ export async function POST(request: Request) {
     return new Response('Invalid signature', { status: 401 })
   }
 
-  // Handle events
+  // Handle reaction_added events
   if (payload.type === 'event_callback') {
     const event = payload.event
 
-    // Only handle ✅ reactions on messages
     if (event.type === 'reaction_added' && event.reaction === 'white_check_mark') {
-      // Process in background so we return 200 quickly
-      handleCoverReaction(event).catch(err =>
+      try {
+        await handleCoverReaction(event)
+      } catch (err) {
         console.error('Cover reaction handler error:', err)
-      )
+      }
     }
   }
 
-  // Must respond within 3 seconds
-  return new Response('', { status: 200 })
+  return NextResponse.json({ ok: true })
 }
 
 async function handleCoverReaction(event: {
@@ -49,13 +51,9 @@ async function handleCoverReaction(event: {
   const botUserId = await getBotUserId()
   if (reactingUserId === botUserId) return
 
-  // DEBUG: post to channel so we can see the event is received
-  await postMessage(item.channel, `🔍 Debug: reaction received from <@${reactingUserId}>, fetching message...`, { thread_ts: item.ts })
-
   // Fetch the message to get metadata
   const message = await fetchMessage(item.channel, item.ts)
   if (!message?.metadata || message.metadata.event_type !== 'cover_request') {
-    await postMessage(item.channel, `🔍 Debug: no metadata found. hasMessage=${!!message}, hasMetadata=${!!message?.metadata}`, { thread_ts: item.ts })
     return
   }
 
@@ -74,7 +72,7 @@ async function handleCoverReaction(event: {
   const slackUser = await getUserInfo(reactingUserId)
   const email = slackUser?.profile?.email
   if (!email) {
-    await postMessage(item.channel, `⚠️ Debug: userId=${reactingUserId}, userFound=${!!slackUser}, email=${slackUser?.profile?.email ?? 'none'}`, {
+    await postMessage(item.channel, `⚠️ <@${reactingUserId}> — could not find your email in Slack. Make sure your Slack profile has an email set.`, {
       thread_ts: item.ts,
     })
     return
@@ -94,8 +92,7 @@ async function handleCoverReaction(event: {
   // Check if session is already covered by someone else
   const session = await prisma.classSession.findUnique({ where: { id: sessionId } })
   if (!session) return
-  if (session.staffId && session.staffId !== requesterId && session.staffId !== session.classId) {
-    // Already covered by a different person
+  if (session.staffId && session.staffId !== requesterId) {
     await postMessage(item.channel, `⚠️ This session has already been covered.`, {
       thread_ts: item.ts,
     })
