@@ -1,4 +1,22 @@
 import { verifySlackSignature, getUserInfo, openModal } from '@/lib/slack'
+
+async function getSlackUserEmail(userId: string): Promise<string | null> {
+  const user = await getUserInfo(userId)
+  if (user?.profile?.email) return user.profile.email
+
+  // Fallback: list all users and find by ID
+  const res = await fetch('https://slack.com/api/users.list', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+  })
+  const data = await res.json()
+  if (!data.ok) return null
+  const matched = data.members?.find((m: { id: string }) => m.id === userId)
+  return matched?.profile?.email ?? null
+}
 import { prisma } from '@/lib/db'
 import { format, parse, startOfDay, endOfDay } from 'date-fns'
 
@@ -29,8 +47,7 @@ export async function POST(request: Request) {
   for (const part of parts) {
     if (part.includes('@')) {
       // Email argument — admin override
-      const slackUser = await getUserInfo(slackUserId)
-      const callerEmail = slackUser?.profile?.email?.toLowerCase() ?? ''
+      const callerEmail = (await getSlackUserEmail(slackUserId))?.toLowerCase() ?? ''
       if (callerEmail && callerEmail !== adminEmail) {
         return ephemeral('❌ Only admins can submit cover requests on behalf of a tutor.')
       }
@@ -46,8 +63,7 @@ export async function POST(request: Request) {
 
   // If no email provided, look up caller's own email
   if (!staffEmail) {
-    const slackUser = await getUserInfo(slackUserId)
-    const callerEmail = slackUser?.profile?.email
+    const callerEmail = await getSlackUserEmail(slackUserId)
     if (!callerEmail) {
       return ephemeral('❌ Could not find your email in Slack. Make sure your Slack profile has an email set.')
     }
