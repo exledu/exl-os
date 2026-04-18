@@ -1,4 +1,4 @@
-import { verifySlackSignature, getUserInfo, fetchMessage, postMessage, getBotUserId, sendDM } from '@/lib/slack'
+import { verifySlackSignature, fetchMessage, postMessage, getBotUserId, sendDM } from '@/lib/slack'
 import { prisma } from '@/lib/db'
 import { logAction } from '@/lib/staff-actions'
 import { NextResponse } from 'next/server'
@@ -39,11 +39,6 @@ export async function POST(request: Request) {
 // ── Look up a Slack user's email, with fallback to users.list ───────────────
 
 async function getSlackUserEmail(userId: string): Promise<string | null> {
-  // Try users.info first (fast)
-  const user = await getUserInfo(userId)
-  if (user?.profile?.email) return user.profile.email
-
-  // Fallback: list all users and find by ID
   const res = await fetch('https://slack.com/api/users.list', {
     method: 'POST',
     headers: {

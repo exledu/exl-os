@@ -1,10 +1,6 @@
-import { verifySlackSignature, getUserInfo, openModal } from '@/lib/slack'
+import { verifySlackSignature, openModal } from '@/lib/slack'
 
 async function getSlackUserEmail(userId: string): Promise<string | null> {
-  const user = await getUserInfo(userId)
-  if (user?.profile?.email) return user.profile.email
-
-  // Fallback: list all users and find by ID
   const res = await fetch('https://slack.com/api/users.list', {
     method: 'POST',
     headers: {
