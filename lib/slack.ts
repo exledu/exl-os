@@ -87,6 +87,7 @@ export async function fetchMessage(channel: string, ts: string) {
     latest: ts,
     inclusive: true,
     limit: 1,
+    include_all_metadata: true,
   })
   return data.messages?.[0] as
     | { ts: string; text: string; metadata?: { event_type: string; event_payload: Record<string, unknown> } }
