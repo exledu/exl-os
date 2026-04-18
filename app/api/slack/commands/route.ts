@@ -89,13 +89,16 @@ export async function POST(request: Request) {
         },
         orderBy: { date: 'asc' },
       })
-    : // Default: show only this staff's sessions
+    : // Default: show sessions where this staff is primary OR session-level override
       await prisma.classSession.findMany({
         where: {
           cancelled: false,
           date: { gte: dateStart, lte: dateEnd },
-          class: { staffId: staff.id },
-          OR: [{ staffId: null }, { staffId: staff.id }],
+          OR: [
+            { class: { staffId: staff.id }, staffId: null },
+            { class: { staffId: staff.id }, staffId: staff.id },
+            { staffId: staff.id },
+          ],
         },
         include: {
           class: { include: { subject: true, yearLevel: true, room: true, staff: true } },
