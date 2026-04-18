@@ -39,6 +39,21 @@ export async function POST(request: Request) {
 // ── Look up a Slack user's email, with fallback to users.list ───────────────
 
 async function getSlackUserEmail(userId: string): Promise<string | null> {
+  // Try users.info first
+  try {
+    const infoRes = await fetch('https://slack.com/api/users.info', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ user: userId }),
+    })
+    const infoData = await infoRes.json()
+    if (infoData.ok && infoData.user?.profile?.email) return infoData.user.profile.email
+  } catch { /* fall through */ }
+
+  // Fallback: users.list
   const res = await fetch('https://slack.com/api/users.list', {
     method: 'POST',
     headers: {

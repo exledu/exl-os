@@ -1,17 +1,34 @@
 import { verifySlackSignature, openModal } from '@/lib/slack'
 
 async function getSlackUserEmail(userId: string): Promise<string | null> {
-  const res = await fetch('https://slack.com/api/users.list', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-      'Content-Type': 'application/json',
-    },
-  })
-  const data = await res.json()
-  if (!data.ok) return null
-  const matched = data.members?.find((m: { id: string }) => m.id === userId)
-  return matched?.profile?.email ?? null
+  // Try users.info first (fast, single user)
+  try {
+    const res = await fetch('https://slack.com/api/users.info', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ user: userId }),
+    })
+    const data = await res.json()
+    if (data.ok && data.user?.profile?.email) return data.user.profile.email
+  } catch { /* fall through */ }
+
+  // Fallback: users.list
+  try {
+    const res = await fetch('https://slack.com/api/users.list', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+    })
+    const data = await res.json()
+    if (!data.ok) return null
+    const matched = data.members?.find((m: { id: string }) => m.id === userId)
+    return matched?.profile?.email ?? null
+  } catch { return null }
 }
 import { prisma } from '@/lib/db'
 import { format, parse, startOfDay, endOfDay } from 'date-fns'
