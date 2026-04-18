@@ -37,38 +37,21 @@ export async function POST(request: Request) {
     return Response.json({ response_action: 'errors', errors: { session_select: 'Session not found' } })
   }
 
-  const dateStr = format(session.date, 'EEEE d MMMM')
-  const roomStr = session.class.room?.name ? ` in ${session.class.room.name}` : ''
   const channelId = process.env.SLACK_COVERS_CHANNEL_ID!
 
   // Build the cover request message
+  const className = `Yr ${session.class.yearLevel.level} ${session.class.subject.name}`
+  const shortDate = format(session.date, 'EEE d MMM')
+  const timeStr = `${session.startTime}–${session.endTime}`
+
   const blocks = [
     {
-      type: 'header',
-      text: { type: 'plain_text', text: '🔄 Cover Request' },
-    },
-    {
       type: 'section',
-      fields: [
-        { type: 'mrkdwn', text: `*Class:*\nYr ${session.class.yearLevel.level} ${session.class.subject.name}` },
-        { type: 'mrkdwn', text: `*Date:*\n${dateStr}` },
-        { type: 'mrkdwn', text: `*Time:*\n${session.startTime} – ${session.endTime}` },
-        { type: 'mrkdwn', text: `*Location:*\n${session.class.room?.name ?? 'TBA'}` },
-      ],
-    },
-    {
-      type: 'section',
-      text: { type: 'mrkdwn', text: `<@${slackUserId}> needs a cover for this session.${note ? `\n\n📝 _${note}_` : ''}` },
-    },
-    {
-      type: 'context',
-      elements: [
-        { type: 'mrkdwn', text: 'React with ✅ to take this cover.' },
-      ],
+      text: { type: 'mrkdwn', text: `🔄 *Cover Needed*\n\n*${className}* — ${shortDate}, ${timeStr}\nRequested by ${staffName}${note ? `\n\n_${note}_` : ''}\n\nReact ✅ to cover this session.` },
     },
   ]
 
-  const fallbackText = `🔄 Cover Request: ${staffName} needs a cover for Yr ${session.class.yearLevel.level} ${session.class.subject.name} on ${dateStr} ${session.startTime}–${session.endTime}${roomStr}. React ✅ to volunteer.`
+  const fallbackText = `🔄 Cover Needed: ${className} — ${shortDate}, ${timeStr}. Requested by ${staffName}. React ✅ to cover.`
 
   const result = await postMessage(channelId, fallbackText, {
     blocks,
@@ -79,9 +62,9 @@ export async function POST(request: Request) {
         requesterId: staffId,
         requesterSlackId: slackUserId,
         requesterName: staffName,
-        className: `Yr ${session.class.yearLevel.level} ${session.class.subject.name}`,
-        dateStr,
-        timeStr: `${session.startTime}–${session.endTime}`,
+        className,
+        dateStr: shortDate,
+        timeStr,
       },
     },
   })
