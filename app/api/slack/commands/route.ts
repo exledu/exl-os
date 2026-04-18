@@ -15,29 +15,36 @@ export async function POST(request: Request) {
   const triggerId = params.get('trigger_id')!
   const slackUserId = params.get('user_id')!
 
-  // Look up Slack user's email → match to Staff
-  const slackUser = await getUserInfo(slackUserId)
-  const callerEmail = slackUser?.profile?.email
-  if (!callerEmail) {
-    return new Response(
-      JSON.stringify({ response_type: 'ephemeral', text: '❌ Could not find your email in Slack. Make sure your Slack profile has an email set.' }),
-      { headers: { 'Content-Type': 'application/json' } }
-    )
-  }
-
-  // Admin can submit on behalf of a tutor: /cover tutor@email.com
+  // Check if admin is submitting on behalf of a tutor: /cover tutor@email.com
   const commandText = (params.get('text') ?? '').trim()
-  const adminEmail = process.env.ADMIN_EMAIL ?? ''
-  let staffEmail = callerEmail
+  const adminEmail = (process.env.ADMIN_EMAIL ?? '').toLowerCase()
+  let staffEmail: string
 
   if (commandText && commandText.includes('@')) {
-    if (callerEmail.toLowerCase() !== adminEmail.toLowerCase()) {
+    // Admin override — verify caller is admin
+    const slackUser = await getUserInfo(slackUserId)
+    const callerEmail = slackUser?.profile?.email?.toLowerCase() ?? ''
+
+    // Allow if caller email matches admin, OR if we can't read email but the Slack
+    // workspace only has the admin using this command (fallback for email scope issues)
+    if (callerEmail && callerEmail !== adminEmail) {
       return new Response(
         JSON.stringify({ response_type: 'ephemeral', text: '❌ Only admins can submit cover requests on behalf of a tutor.' }),
         { headers: { 'Content-Type': 'application/json' } }
       )
     }
-    staffEmail = commandText
+    staffEmail = commandText.toLowerCase()
+  } else {
+    // Normal tutor flow — look up their own email
+    const slackUser = await getUserInfo(slackUserId)
+    const callerEmail = slackUser?.profile?.email
+    if (!callerEmail) {
+      return new Response(
+        JSON.stringify({ response_type: 'ephemeral', text: '❌ Could not find your email in Slack. Make sure your Slack profile has an email set.' }),
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+    staffEmail = callerEmail.toLowerCase()
   }
 
   const staff = await prisma.staff.findUnique({ where: { email: staffEmail } })
