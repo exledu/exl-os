@@ -21,7 +21,6 @@ export async function POST(request: Request) {
     return new Response('Invalid signature', { status: 401 })
   }
 
-  // Handle reaction_added events
   if (payload.type === 'event_callback') {
     const event = payload.event
 
@@ -36,6 +35,30 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ ok: true })
 }
+
+// ── Look up a Slack user's email, with fallback to users.list ───────────────
+
+async function getSlackUserEmail(userId: string): Promise<string | null> {
+  // Try users.info first (fast)
+  const user = await getUserInfo(userId)
+  if (user?.profile?.email) return user.profile.email
+
+  // Fallback: list all users and find by ID
+  const res = await fetch('https://slack.com/api/users.list', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+  })
+  const data = await res.json()
+  if (!data.ok) return null
+
+  const matched = data.members?.find((m: { id: string }) => m.id === userId)
+  return matched?.profile?.email ?? null
+}
+
+// ── Handle ✅ reaction on a cover request ───────────────────────────────────
 
 async function handleCoverReaction(event: {
   user: string
@@ -53,9 +76,7 @@ async function handleCoverReaction(event: {
 
   // Fetch the message to get metadata
   const message = await fetchMessage(item.channel, item.ts)
-  if (!message?.metadata || message.metadata.event_type !== 'cover_request') {
-    return
-  }
+  if (!message?.metadata || message.metadata.event_type !== 'cover_request') return
 
   const { sessionId, requesterId, requesterSlackId, requesterName, className, dateStr, timeStr } =
     message.metadata.event_payload as {
@@ -68,11 +89,10 @@ async function handleCoverReaction(event: {
       timeStr: string
     }
 
-  // Look up the reacting user's email → Staff record
-  const slackUser = await getUserInfo(reactingUserId)
-  const email = slackUser?.profile?.email
+  // Look up the reacting user's email
+  const email = await getSlackUserEmail(reactingUserId)
   if (!email) {
-    await postMessage(item.channel, `⚠️ <@${reactingUserId}> — could not find your email in Slack. Make sure your Slack profile has an email set.`, {
+    await postMessage(item.channel, `⚠️ <@${reactingUserId}> — could not find your email in Slack. Make sure your profile has an email set.`, {
       thread_ts: item.ts,
     })
     return
@@ -89,13 +109,11 @@ async function handleCoverReaction(event: {
   // Don't let the requester cover their own session
   if (coverStaff.id === requesterId) return
 
-  // Check if session is already covered by someone else
+  // Check if session is already covered
   const session = await prisma.classSession.findUnique({ where: { id: sessionId } })
   if (!session) return
   if (session.staffId && session.staffId !== requesterId) {
-    await postMessage(item.channel, `⚠️ This session has already been covered.`, {
-      thread_ts: item.ts,
-    })
+    await postMessage(item.channel, `⚠️ This session has already been covered.`, { thread_ts: item.ts })
     return
   }
 
@@ -105,7 +123,6 @@ async function handleCoverReaction(event: {
     data: { staffId: coverStaff.id },
   })
 
-  // Log the action
   logAction({
     staffId: coverStaff.id,
     type: 'session_staff_changed',
@@ -113,7 +130,7 @@ async function handleCoverReaction(event: {
     metadata: { sessionId, requesterId, coverStaffId: coverStaff.id },
   })
 
-  // Post confirmation in thread
+  // Post confirmation
   await postMessage(
     item.channel,
     `✅ <@${reactingUserId}> (${coverStaff.name}) is covering ${className} on ${dateStr}, ${timeStr}. The timetable has been updated automatically.`,
