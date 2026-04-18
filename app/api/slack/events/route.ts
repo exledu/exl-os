@@ -4,18 +4,18 @@ import { logAction } from '@/lib/staff-actions'
 
 export async function POST(request: Request) {
   const rawBody = await request.text()
+  const payload = JSON.parse(rawBody)
+
+  // Slack URL verification challenge (one-time setup) — must respond before signature check
+  if (payload.type === 'url_verification') {
+    return Response.json({ challenge: payload.challenge })
+  }
+
   const timestamp = request.headers.get('X-Slack-Request-Timestamp') ?? ''
   const signature = request.headers.get('X-Slack-Signature') ?? ''
 
   if (!verifySlackSignature(rawBody, timestamp, signature)) {
     return new Response('Invalid signature', { status: 401 })
-  }
-
-  const payload = JSON.parse(rawBody)
-
-  // Slack URL verification challenge (one-time setup)
-  if (payload.type === 'url_verification') {
-    return Response.json({ challenge: payload.challenge })
   }
 
   // Handle events
