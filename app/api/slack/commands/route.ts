@@ -75,14 +75,15 @@ export async function POST(request: Request) {
         },
         orderBy: { date: 'asc' },
       })
-    : // Default: show sessions where this staff is primary OR session-level override
+    : // Default: show sessions where this staff is primary or session-level override
       await prisma.classSession.findMany({
         where: {
           cancelled: false,
-          date: { gte: dateStart, lte: dateEnd },
+          date: { gte: startOfDay(now), lte: dateEnd },
           OR: [
+            // Primary teacher (no session override)
             { class: { staffId: staff.id }, staffId: null },
-            { class: { staffId: staff.id }, staffId: staff.id },
+            // Session-level override to this staff
             { staffId: staff.id },
           ],
         },
