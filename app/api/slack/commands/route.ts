@@ -17,18 +17,33 @@ export async function POST(request: Request) {
 
   // Look up Slack user's email → match to Staff
   const slackUser = await getUserInfo(slackUserId)
-  const email = slackUser?.profile?.email
-  if (!email) {
+  const callerEmail = slackUser?.profile?.email
+  if (!callerEmail) {
     return new Response(
       JSON.stringify({ response_type: 'ephemeral', text: '❌ Could not find your email in Slack. Make sure your Slack profile has an email set.' }),
       { headers: { 'Content-Type': 'application/json' } }
     )
   }
 
-  const staff = await prisma.staff.findUnique({ where: { email } })
+  // Admin can submit on behalf of a tutor: /cover tutor@email.com
+  const commandText = (params.get('text') ?? '').trim()
+  const adminEmail = process.env.ADMIN_EMAIL ?? ''
+  let staffEmail = callerEmail
+
+  if (commandText && commandText.includes('@')) {
+    if (callerEmail.toLowerCase() !== adminEmail.toLowerCase()) {
+      return new Response(
+        JSON.stringify({ response_type: 'ephemeral', text: '❌ Only admins can submit cover requests on behalf of a tutor.' }),
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+    staffEmail = commandText
+  }
+
+  const staff = await prisma.staff.findUnique({ where: { email: staffEmail } })
   if (!staff) {
     return new Response(
-      JSON.stringify({ response_type: 'ephemeral', text: `❌ No staff member found in EXL OS with email ${email}. Ask an admin to add you.` }),
+      JSON.stringify({ response_type: 'ephemeral', text: `❌ No staff member found in EXL OS with email ${staffEmail}.` }),
       { headers: { 'Content-Type': 'application/json' } }
     )
   }
