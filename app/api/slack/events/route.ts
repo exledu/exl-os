@@ -74,7 +74,7 @@ async function handleCoverReaction(event: {
   const slackUser = await getUserInfo(reactingUserId)
   const email = slackUser?.profile?.email
   if (!email) {
-    await postMessage(item.channel, `⚠️ <@${reactingUserId}> — could not find your email in Slack. Make sure your profile has an email set.`, {
+    await postMessage(item.channel, `⚠️ Debug: userId=${reactingUserId}, userFound=${!!slackUser}, email=${slackUser?.profile?.email ?? 'none'}`, {
       thread_ts: item.ts,
     })
     return
