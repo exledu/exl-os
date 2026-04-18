@@ -175,22 +175,31 @@ async function handleCoverRetract(event: {
     return
   }
 
-  // Revert session staff back to the class default (null = use class staffId)
+  // Revert session staff back to the requester (not null — the requester may not be the class's primary teacher)
+  const session = await prisma.classSession.findUnique({
+    where: { id: sessionId },
+    include: { class: { select: { staffId: true } } },
+  })
+  if (!session) return
+
+  // If requester IS the class's primary teacher, set to null (default). Otherwise set to requester.
+  const revertStaffId = session.class.staffId === requesterId ? null : requesterId
+
   await prisma.classSession.update({
     where: { id: sessionId },
-    data: { staffId: null },
+    data: { staffId: revertStaffId },
   })
 
   logAction({
     staffId: requesterId,
     type: 'session_staff_changed',
-    description: `Retracted cover request for ${className} on ${dateStr} (reverted to original tutor)`,
+    description: `Retracted cover request for ${className} on ${dateStr} (reverted to ${requesterName})`,
     metadata: { sessionId, requesterId },
   })
 
   await postMessage(
     item.channel,
-    `❌ Cover request for ${className} on ${dateStr}, ${timeStr} has been retracted by <@${reactingUserId}>. The session has been reverted to the original tutor.`,
+    `❌ Cover request for ${className} on ${dateStr}, ${timeStr} has been retracted. Session reverted to ${requesterName}.`,
     { thread_ts: item.ts }
   )
 }
