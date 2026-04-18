@@ -192,9 +192,13 @@ export function InvoicingView() {
 
   useEffect(() => {
     loadStudents()
-    const onVisible = () => { if (document.visibilityState === 'visible') loadStudents() }
-    document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
+    // Also refetch when window regains focus (e.g. after editing in another page)
+    const onFocus = () => loadStudents()
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') loadStudents()
+    })
+    return () => window.removeEventListener('focus', onFocus)
   }, [loadStudents])
 
   // ── Recalculate line items when early bird toggles ──

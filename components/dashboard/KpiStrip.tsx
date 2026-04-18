@@ -121,35 +121,48 @@ export function KpiStrip() {
       })}
 
       {/* Term Payment KPI cards */}
-      {data.termPayments.map(tp => (
-        <div
-          key={`${tp.year}-${tp.term}`}
-          className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm hover:shadow-md transition-shadow duration-200"
-        >
-          <div className="flex items-center gap-2 mb-2">
-            <div className="rounded-lg p-1.5 bg-indigo-50 text-indigo-700">
-              <Receipt className="h-3.5 w-3.5" />
+      {data.termPayments.map(tp => {
+        const paidPct = tp.total > 0 ? Math.round((tp.paid / tp.total) * 100) : 0
+        const unpaidPct = 100 - paidPct
+
+        return (
+          <div
+            key={`${tp.year}-${tp.term}`}
+            className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm hover:shadow-md transition-shadow duration-200"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <div className="rounded-lg p-1.5 bg-indigo-50 text-indigo-700">
+                <Receipt className="h-3.5 w-3.5" />
+              </div>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider leading-tight">
+                {tp.year} T{tp.term}
+              </span>
             </div>
-            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider leading-tight">
-              {tp.year} T{tp.term}
-            </span>
+
+            {/* Stacked horizontal bar */}
+            <div className="flex h-6 w-full rounded-full overflow-hidden bg-gray-100">
+              {paidPct > 0 && (
+                <div
+                  className="bg-emerald-400 transition-all duration-500"
+                  style={{ width: `${paidPct}%` }}
+                />
+              )}
+              {unpaidPct > 0 && (
+                <div
+                  className="bg-amber-300 transition-all duration-500"
+                  style={{ width: `${unpaidPct}%` }}
+                />
+              )}
+            </div>
+
+            {/* Labels */}
+            <div className="flex justify-between mt-1.5 text-[11px] font-medium">
+              <span className="text-emerald-600">{paidPct}% paid</span>
+              <span className="text-amber-600">{unpaidPct}% unpaid</span>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {/* Green circles = PAID */}
-            {Array.from({ length: tp.paid }).map((_, i) => (
-              <div key={`p${i}`} className="h-5 w-5 rounded-full bg-emerald-400" />
-            ))}
-            {/* Yellow circles = SENT */}
-            {Array.from({ length: tp.sent }).map((_, i) => (
-              <div key={`s${i}`} className="h-5 w-5 rounded-full bg-amber-300" />
-            ))}
-            {/* Grey circles = DRAFT */}
-            {Array.from({ length: tp.draft }).map((_, i) => (
-              <div key={`d${i}`} className="h-5 w-5 rounded-full bg-gray-200" />
-            ))}
-          </div>
-        </div>
-      ))}
+        )
+      })}
 
       {/* Placeholder cards if fewer than 2 terms */}
       {data.termPayments.length === 0 && Array.from({ length: 2 }).map((_, i) => (
