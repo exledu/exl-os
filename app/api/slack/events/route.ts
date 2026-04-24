@@ -203,8 +203,8 @@ async function handleCoverRetract(event: {
     : null
   const cancellerName = canceller?.name ?? requesterName
 
-  // Update the original message — remove date info
-  const cancelledText = `❌ *COVER CANCELLED* by ${cancellerName}\n\n*${className}*`
+  // Update the original message — remove all session info
+  const cancelledText = `❌ *COVER CANCELLED* by ${cancellerName}`
   await updateMessage(item.channel, item.ts, `❌ COVER CANCELLED by ${cancellerName}`, {
     blocks: [{ type: 'section', text: { type: 'mrkdwn', text: cancelledText } }],
   })
