@@ -57,7 +57,7 @@ export async function POST(request: Request) {
   const blocks = [
     {
       type: 'section',
-      text: { type: 'mrkdwn', text: `🔄 *Cover Needed*\n\n*${className}* — ${shortDate}, ${timeStr}\n${requestedBy}${note ? `\n\n_${note}_` : ''}\n\nReact ✅ to cover this session.` },
+      text: { type: 'mrkdwn', text: `🔄 *COVER NEEDED*\n\n*${className}* — ${shortDate}, ${timeStr}\n${requestedBy}${note ? `\n\n_${note}_` : ''}\n\nReact ✅ to take this cover.` },
     },
   ]
 

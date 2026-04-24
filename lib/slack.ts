@@ -99,6 +99,21 @@ export async function addReaction(channel: string, timestamp: string, name: stri
   return slackApi('reactions.add', { channel, timestamp, name })
 }
 
+/** Update an existing message. */
+export async function updateMessage(
+  channel: string,
+  ts: string,
+  text: string,
+  opts?: { blocks?: unknown[] }
+) {
+  return slackApi('chat.update', {
+    channel,
+    ts,
+    text,
+    ...(opts?.blocks && { blocks: opts.blocks }),
+  })
+}
+
 /** Remove a reaction from a message. */
 export async function removeReaction(channel: string, timestamp: string, name: string) {
   return slackApi('reactions.remove', { channel, timestamp, name })

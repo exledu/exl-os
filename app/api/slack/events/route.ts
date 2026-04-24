@@ -1,4 +1,4 @@
-import { verifySlackSignature, fetchMessage, postMessage, getBotUserId, sendDM, getSlackUserEmail } from '@/lib/slack'
+import { verifySlackSignature, fetchMessage, postMessage, getBotUserId, sendDM, getSlackUserEmail, updateMessage } from '@/lib/slack'
 import { prisma } from '@/lib/db'
 import { logAction } from '@/lib/staff-actions'
 import { NextResponse } from 'next/server'
@@ -118,12 +118,11 @@ async function handleCoverReaction(event: {
     metadata: { sessionId, requesterId, coverStaffId: coverStaff.id },
   })
 
-  // Post confirmation
-  await postMessage(
-    item.channel,
-    `✅ <@${reactingUserId}> (${coverStaff.name}) is covering ${className} on ${dateStr}, ${timeStr}. The timetable has been updated automatically.`,
-    { thread_ts: item.ts }
-  )
+  // Update the original message to show it's been filled
+  const filledText = `✅ *COVER FOUND* — Thank you ${coverStaff.name}\n\n*${className}* — ${dateStr}, ${timeStr}\n_Originally requested by ${requesterName}_`
+  await updateMessage(item.channel, item.ts, `✅ COVER FOUND — Thank you ${coverStaff.name}`, {
+    blocks: [{ type: 'section', text: { type: 'mrkdwn', text: filledText } }],
+  })
 
   // DM both tutors
   await sendDM(
@@ -197,9 +196,16 @@ async function handleCoverRetract(event: {
     metadata: { sessionId, requesterId },
   })
 
-  await postMessage(
-    item.channel,
-    `❌ Cover request for ${className} on ${dateStr}, ${timeStr} has been retracted. Session reverted to ${requesterName}.`,
-    { thread_ts: item.ts }
-  )
+  // Get the cancelling user's name
+  const cancellerEmail = await getSlackUserEmail(reactingUserId)
+  const canceller = cancellerEmail
+    ? await prisma.staff.findUnique({ where: { email: cancellerEmail } })
+    : null
+  const cancellerName = canceller?.name ?? requesterName
+
+  // Update the original message — remove date info
+  const cancelledText = `❌ *COVER CANCELLED* by ${cancellerName}\n\n*${className}*`
+  await updateMessage(item.channel, item.ts, `❌ COVER CANCELLED by ${cancellerName}`, {
+    blocks: [{ type: 'section', text: { type: 'mrkdwn', text: cancelledText } }],
+  })
 }
