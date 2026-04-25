@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db'
+import { cookies } from 'next/headers'
 
 // Term to month range (1-indexed terms, 0-indexed months)
 const TERM_MONTHS: Record<number, [number, number]> = {
@@ -15,6 +16,11 @@ function parseHours(start: string, end: string): number {
 }
 
 export async function GET(request: Request) {
+  const store = await cookies()
+  if (store.get('exl-finance-unlock')?.value !== 'unlocked') {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const url = new URL(request.url)
   const year = Number(url.searchParams.get('year'))
   const term = Number(url.searchParams.get('term'))
