@@ -2,7 +2,7 @@
  * One-time backfill: fetch Gmail threadIds for existing unresolved issues,
  * then merge duplicate issues in the same thread into a single issue with notes.
  *
- * Hit with: GET /api/issues/regroup?secret=YOUR_SLACK_SIGNING_SECRET
+ * Hit with: GET /api/issues/regroup (must be logged in)
  */
 
 import { google } from 'googleapis'
@@ -22,13 +22,7 @@ function makeGmailClient(tokenRecord: { accessToken: string; refreshToken: strin
   return google.gmail({ version: 'v1', auth: oauth2Client })
 }
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url)
-  const secret = searchParams.get('secret')
-  if (!secret || secret !== process.env.SLACK_SIGNING_SECRET) {
-    return new Response('Unauthorized', { status: 401 })
-  }
-
+export async function GET() {
   const log: string[] = []
 
   // ── Phase 1: backfill threadIds ──────────────────────────────────────────
