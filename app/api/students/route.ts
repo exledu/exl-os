@@ -1,7 +1,11 @@
 import { prisma } from '@/lib/db'
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url)
+  const archived = searchParams.get('archived') === 'true'
+
   const students = await prisma.student.findMany({
+    where: { archived },
     include: { yearLevel: true, _count: { select: { enrolments: true } } },
     orderBy: [{ lastName: 'asc' }, { name: 'asc' }],
   })

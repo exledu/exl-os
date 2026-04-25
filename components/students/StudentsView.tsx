@@ -18,6 +18,7 @@ interface StudentSummary {
   yearLevel: { id: number; level: number }
   school: string | null
   _count: { enrolments: number }
+  archived?: boolean
 }
 
 interface EnrolledClass {
@@ -115,6 +116,8 @@ const ISSUE_TYPE_COLOURS: Record<string, string> = {
 export function StudentsView() {
   const searchParams = useSearchParams()
   const [students, setStudents]           = useState<StudentSummary[]>([])
+  const [archivedStudents, setArchivedStudents] = useState<StudentSummary[]>([])
+  const [showArchived, setShowArchived]   = useState(false)
   const [yearLevels, setYearLevels]       = useState<YearLevel[]>([])
   const [search, setSearch]               = useState('')
   const [selectedId, setSelectedId]       = useState<number | null>(null)
@@ -140,13 +143,39 @@ export function StudentsView() {
   const [passkeyError, setPasskeyError]   = useState(false)
   const [deleting, setDeleting]           = useState(false)
 
+  async function loadStudents() {
+    const [activeRes, archivedRes] = await Promise.all([
+      fetch('/api/students'),
+      fetch('/api/students?archived=true'),
+    ])
+    if (activeRes.ok) setStudents(await activeRes.json())
+    if (archivedRes.ok) setArchivedStudents(await archivedRes.json())
+  }
+
+  async function toggleArchive(studentId: number, archive: boolean) {
+    const res = await fetch(`/api/students/${studentId}/archive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archived: archive }),
+    })
+    if (res.ok) {
+      if (selectedId === studentId) {
+        setSelectedId(null)
+        setSelected(null)
+      }
+      await loadStudents()
+    }
+  }
+
   useEffect(() => {
     async function init() {
-      const [studentsRes, ylRes] = await Promise.all([
+      const [studentsRes, archivedRes, ylRes] = await Promise.all([
         fetch('/api/students'),
+        fetch('/api/students?archived=true'),
         fetch('/api/year-levels'),
       ])
       if (studentsRes.ok) setStudents(await studentsRes.json())
+      if (archivedRes.ok) setArchivedStudents(await archivedRes.json())
       if (ylRes.ok) setYearLevels(await ylRes.json())
       // Auto-select student from URL param (e.g. /students?id=5)
       const idParam = searchParams.get('id')
@@ -339,6 +368,40 @@ export function StudentsView() {
             ))
           })()}
         </div>
+
+        {/* Archived students dropdown */}
+        {archivedStudents.length > 0 && (
+          <div className="border-t border-zinc-100">
+            <button
+              onClick={() => setShowArchived(v => !v)}
+              className="w-full px-4 py-2.5 flex items-center justify-between text-xs font-medium text-zinc-500 hover:bg-zinc-50 transition-colors"
+            >
+              <span>Archived ({archivedStudents.length})</span>
+              <span className="text-zinc-400">{showArchived ? '▲' : '▼'}</span>
+            </button>
+            {showArchived && (
+              <div className="max-h-64 overflow-y-auto bg-zinc-50/40 divide-y divide-zinc-100">
+                {archivedStudents.map(s => (
+                  <button
+                    key={s.id}
+                    onClick={() => selectStudent(s.id)}
+                    className={`w-full text-left px-4 py-2 flex items-center gap-3 transition-colors opacity-60 hover:opacity-100 hover:bg-white ${
+                      selectedId === s.id ? 'bg-white opacity-100 border-l-2 border-l-zinc-900' : 'border-l-2 border-l-transparent'
+                    }`}
+                  >
+                    <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${avatarColour(s.yearLevel.level)}`}>
+                      {initials(s.name, s.lastName)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-zinc-700 truncate">{fullName(s)}</p>
+                      <p className="text-[11px] text-zinc-400 truncate">Yr {s.yearLevel.level}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Right panel: student detail ──────────────────────────────────── */}
@@ -385,6 +448,12 @@ export function StudentsView() {
                   >
                     <Pencil className="h-3 w-3" />
                     Edit
+                  </button>
+                  <button
+                    onClick={() => toggleArchive(selected.id, !selected.archived)}
+                    className="flex items-center gap-1 rounded-md border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-600 hover:bg-zinc-50 transition-colors"
+                  >
+                    {selected.archived ? 'Unarchive' : 'Archive'}
                   </button>
                   <button
                     onClick={() => { setConfirmDelete(true); setPasskey(''); setPasskeyError(false) }}

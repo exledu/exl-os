@@ -66,6 +66,7 @@ model Student {
   parentEmail     String?
   parentPhone     String?
   notes       String?
+  archived    Boolean     @default(false)
   enrolments  Enrolment[]
   issues      Issue[]
   invoices    Invoice[]
