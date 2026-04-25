@@ -99,6 +99,16 @@ export async function addReaction(channel: string, timestamp: string, name: stri
   return slackApi('reactions.add', { channel, timestamp, name })
 }
 
+/** Pin a message to a channel. */
+export async function pinMessage(channel: string, timestamp: string) {
+  return slackApi('pins.add', { channel, timestamp })
+}
+
+/** Unpin a message from a channel. */
+export async function unpinMessage(channel: string, timestamp: string) {
+  return slackApi('pins.remove', { channel, timestamp })
+}
+
 /** Update an existing message. */
 export async function updateMessage(
   channel: string,

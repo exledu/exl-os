@@ -1,4 +1,4 @@
-import { verifySlackSignature, postMessage, addReaction } from '@/lib/slack'
+import { verifySlackSignature, postMessage, addReaction, pinMessage } from '@/lib/slack'
 import { prisma } from '@/lib/db'
 import { format } from 'date-fns'
 
@@ -79,8 +79,9 @@ export async function POST(request: Request) {
     },
   })
 
-  // Add ✅ reaction as a prompt
+  // Pin the message and add ✅ reaction as a prompt
   if (result.ok && result.ts) {
+    await pinMessage(channelId, result.ts)
     await addReaction(channelId, result.ts, 'white_check_mark')
   }
 

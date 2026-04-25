@@ -1,4 +1,4 @@
-import { verifySlackSignature, fetchMessage, postMessage, getBotUserId, sendDM, getSlackUserEmail, updateMessage } from '@/lib/slack'
+import { verifySlackSignature, fetchMessage, postMessage, getBotUserId, sendDM, getSlackUserEmail, updateMessage, unpinMessage } from '@/lib/slack'
 import { prisma } from '@/lib/db'
 import { logAction } from '@/lib/staff-actions'
 import { NextResponse } from 'next/server'
@@ -118,11 +118,12 @@ async function handleCoverReaction(event: {
     metadata: { sessionId, requesterId, coverStaffId: coverStaff.id },
   })
 
-  // Update the original message to show it's been filled
+  // Update the original message to show it's been filled, and unpin
   const filledText = `✅ *COVER FOUND* — Thank you ${coverStaff.name}\n\n*${className}* — ${dateStr}, ${timeStr}\n_Originally requested by ${requesterName}_`
   await updateMessage(item.channel, item.ts, `✅ COVER FOUND — Thank you ${coverStaff.name}`, {
     blocks: [{ type: 'section', text: { type: 'mrkdwn', text: filledText } }],
   })
+  await unpinMessage(item.channel, item.ts)
 
   // DM both tutors
   await sendDM(
@@ -203,9 +204,10 @@ async function handleCoverRetract(event: {
     : null
   const cancellerName = canceller?.name ?? requesterName
 
-  // Update the original message — remove all session info
+  // Update the original message — remove all session info, and unpin
   const cancelledText = `❌ *COVER CANCELLED* by ${cancellerName}`
   await updateMessage(item.channel, item.ts, `❌ COVER CANCELLED by ${cancellerName}`, {
     blocks: [{ type: 'section', text: { type: 'mrkdwn', text: cancelledText } }],
   })
+  await unpinMessage(item.channel, item.ts)
 }
