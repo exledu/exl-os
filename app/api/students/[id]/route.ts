@@ -19,6 +19,22 @@ export async function GET(_req: Request, ctx: RouteContext<'/api/students/[id]'>
           },
         },
       },
+      trials: {
+        include: {
+          session: {
+            include: {
+              class: {
+                include: {
+                  subject: true,
+                  yearLevel: true,
+                  staff: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { session: { date: 'asc' } },
+      },
       issues: {
         orderBy: [{ resolved: 'asc' }, { createdAt: 'desc' }],
       },

@@ -615,6 +615,7 @@ interface AttendanceRow {
   name: string
   lastName: string | null
   present: boolean
+  isTrial?: boolean
 }
 
 function WeekRow({
@@ -855,9 +856,16 @@ function WeekRow({
               </div>
               {attendance.map(row => (
                 <div key={row.studentId} className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-white/80 transition-colors">
-                  <span className="text-xs text-gray-700">
-                    {row.name}{row.lastName ? ` ${row.lastName}` : ''}
-                  </span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs text-gray-700 truncate">
+                      {row.name}{row.lastName ? ` ${row.lastName}` : ''}
+                    </span>
+                    {row.isTrial && (
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 bg-amber-100 rounded px-1.5 py-0.5">
+                        Trial
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => toggleAttendance(row.studentId, true)}

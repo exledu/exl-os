@@ -68,6 +68,7 @@ model Student {
   notes       String?
   archived    Boolean     @default(false)
   enrolments  Enrolment[]
+  trials      TrialEnrolment[]
   issues      Issue[]
   invoices    Invoice[]
   attendances Attendance[]
@@ -110,6 +111,19 @@ model ClassSession {
   staffId      Int?      @map("tutorId")
   staff        Staff?    @relation(fields: [staffId], references: [id])
   attendances  Attendance[]
+  trials       TrialEnrolment[]
+}
+
+model TrialEnrolment {
+  id        Int          @id @default(autoincrement())
+  studentId Int
+  student   Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  sessionId Int
+  session   ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+
+  @@unique([studentId, sessionId])
+  @@index([sessionId])
 }
 
 model Attendance {

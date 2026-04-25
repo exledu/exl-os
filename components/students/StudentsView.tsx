@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { format } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import { Plus, Mail, Phone, School, BookOpen, StickyNote, AlertCircle, Pencil, Trash2, X, Check, CalendarDays, Clock, ChevronRight } from 'lucide-react'
 import { subjectColour } from '@/lib/subject-colours'
 
@@ -37,6 +37,22 @@ interface EnrolledClass {
   }
 }
 
+interface TrialEnrolment {
+  id: number
+  session: {
+    id: number
+    date: string
+    startTime: string
+    endTime: string
+    class: {
+      id: number
+      subject: { name: string }
+      yearLevel: { level: number }
+      staff: { name: string }
+    }
+  }
+}
+
 interface StudentDetail extends StudentSummary {
   email: string | null
   phone: string | null
@@ -46,6 +62,7 @@ interface StudentDetail extends StudentSummary {
   parentPhone: string | null
   notes: string | null
   enrolments: EnrolledClass[]
+  trials: TrialEnrolment[]
   issues: {
     id: number
     type: string
@@ -619,6 +636,36 @@ export function StudentsView() {
                   </div>
                 </section>
 
+                {/* Free Trials */}
+                <section>
+                  <SectionHeading icon={<BookOpen className="h-3.5 w-3.5" />}>
+                    Free Trials
+                  </SectionHeading>
+                  <div className="mt-3 space-y-2">
+                    {selected.trials.length === 0 && (
+                      <p className="text-sm text-zinc-400">No free trials booked.</p>
+                    )}
+                    {selected.trials.map(t => (
+                      <TrialCard
+                        key={t.id}
+                        trial={t}
+                        onRemove={async () => {
+                          await fetch(`/api/students/${selected.id}/trials`, {
+                            method: 'DELETE',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sessionId: t.session.id }),
+                          })
+                          selectStudent(selected.id)
+                        }}
+                      />
+                    ))}
+                    <EnrolFreeTrialPicker
+                      studentId={selected.id}
+                      onEnrolled={() => selectStudent(selected.id)}
+                    />
+                  </div>
+                </section>
+
                 {/* Notes */}
                 <section>
                   <SectionHeading icon={<StickyNote className="h-3.5 w-3.5" />}>
@@ -986,6 +1033,172 @@ function InfoRow({ icon, label, value }: { icon?: React.ReactNode; label: string
           {value ?? <span className="text-zinc-300">—</span>}
         </p>
       </div>
+    </div>
+  )
+}
+
+// ─── Trial card (compact) ────────────────────────────────────────────────────
+
+function TrialCard({ trial, onRemove }: { trial: TrialEnrolment; onRemove: () => void }) {
+  const dateStr = format(parseISO(trial.session.date), 'EEE d MMM')
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50/40 px-3 py-2 flex items-center justify-between">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 bg-amber-100 rounded px-1.5 py-0.5">
+            Trial
+          </span>
+          <p className="text-sm font-medium text-zinc-800 truncate">
+            Yr {trial.session.class.yearLevel.level} {trial.session.class.subject.name}
+          </p>
+        </div>
+        <p className="text-xs text-zinc-500 mt-0.5">
+          {dateStr}, {trial.session.startTime}–{trial.session.endTime} · {trial.session.class.staff.name}
+        </p>
+      </div>
+      <button
+        onClick={onRemove}
+        className="rounded-md p-1 text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+        title="Remove trial"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  )
+}
+
+// ─── Enrol free trial picker ─────────────────────────────────────────────────
+
+function EnrolFreeTrialPicker({ studentId, onEnrolled }: { studentId: number; onEnrolled: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [classes, setClasses] = useState<{ id: number; subject: { name: string }; yearLevel: { level: number }; staff: { name: string } }[]>([])
+  const [classId, setClassId] = useState<number | null>(null)
+  const [sessions, setSessions] = useState<{ id: number; date: string; startTime: string; endTime: string }[]>([])
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [enrolling, setEnrolling] = useState(false)
+
+  async function openPicker() {
+    setLoading(true)
+    const res = await fetch('/api/classes')
+    if (res.ok) setClasses(await res.json())
+    setLoading(false)
+    setOpen(true)
+  }
+
+  async function pickClass(id: number) {
+    setClassId(id)
+    setSessions([])
+    const res = await fetch(`/api/classes/${id}/sessions`)
+    if (!res.ok) return
+    const terms = await res.json() as { weeks: { id: number; date: string; startTime: string; endTime: string; cancelled: boolean }[] }[]
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const upcoming = terms
+      .flatMap(t => t.weeks)
+      .filter(w => !w.cancelled && new Date(w.date) >= today)
+    setSessions(upcoming)
+  }
+
+  async function enrol(sessionId: number) {
+    setEnrolling(true)
+    await fetch(`/api/students/${studentId}/trials`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    })
+    setEnrolling(false)
+    setOpen(false)
+    setClassId(null)
+    setSearch('')
+    onEnrolled()
+  }
+
+  function close() {
+    setOpen(false)
+    setClassId(null)
+    setSessions([])
+    setSearch('')
+  }
+
+  const filteredClasses = classes.filter(c =>
+    `yr ${c.yearLevel.level} ${c.subject.name}`.toLowerCase().includes(search.toLowerCase())
+  )
+
+  if (!open) {
+    return (
+      <button
+        onClick={openPicker}
+        disabled={loading}
+        className="flex items-center gap-1.5 text-xs text-amber-700 hover:underline mt-1"
+      >
+        <Plus className="h-3 w-3" />
+        {loading ? 'Loading…' : 'Enrol free trial'}
+      </button>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-white shadow-sm mt-1 overflow-hidden">
+      <div className="flex items-center gap-1 p-2 border-b border-zinc-100">
+        <span className="text-xs font-medium text-zinc-700">
+          {classId === null ? '1. Pick a class' : '2. Pick a session'}
+        </span>
+        <div className="flex-1" />
+        {classId !== null && (
+          <button onClick={() => { setClassId(null); setSessions([]) }} className="text-xs text-zinc-500 hover:underline">
+            Back
+          </button>
+        )}
+        <button onClick={close} className="rounded p-1 text-zinc-400 hover:bg-zinc-100">
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+
+      {classId === null ? (
+        <>
+          <div className="p-2 border-b border-zinc-100">
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search classes…"
+              className="w-full rounded border border-zinc-200 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
+              autoFocus
+            />
+          </div>
+          <div className="max-h-40 overflow-y-auto">
+            {filteredClasses.length === 0 && (
+              <p className="px-3 py-2 text-xs text-zinc-400">No matching classes</p>
+            )}
+            {filteredClasses.map(c => (
+              <button
+                key={c.id}
+                onClick={() => pickClass(c.id)}
+                className="w-full text-left px-3 py-2 text-xs hover:bg-zinc-50 transition-colors flex items-center justify-between"
+              >
+                <span className="font-medium text-zinc-800">Yr {c.yearLevel.level} {c.subject.name}</span>
+                <span className="text-zinc-400">{c.staff.name}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="max-h-60 overflow-y-auto">
+          {sessions.length === 0 && (
+            <p className="px-3 py-2 text-xs text-zinc-400">No upcoming sessions for this class</p>
+          )}
+          {sessions.map(s => (
+            <button
+              key={s.id}
+              onClick={() => enrol(s.id)}
+              disabled={enrolling}
+              className="w-full text-left px-3 py-2 text-xs hover:bg-zinc-50 transition-colors flex items-center justify-between disabled:opacity-50"
+            >
+              <span className="font-medium text-zinc-800">{format(parseISO(s.date), 'EEE d MMM')}</span>
+              <span className="text-zinc-400">{s.startTime}–{s.endTime}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
