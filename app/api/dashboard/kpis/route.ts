@@ -107,9 +107,10 @@ export async function GET(request: Request) {
   // For each term, count statuses
   const termPayments = lastTwoTerms.map(t => {
     const termInvs = recentTermInvoices.filter(i => i.year === t.year && i.term === t.term)
-    const total = termInvs.length
-    const paid = termInvs.filter(i => i.status === 'PAID').length
-    const sent = termInvs.filter(i => i.status === 'SENT').length
+    const countable = termInvs.filter(i => i.status === 'PAID' || i.status === 'SENT')
+    const total = countable.length
+    const paid = countable.filter(i => i.status === 'PAID').length
+    const sent = countable.filter(i => i.status === 'SENT').length
     const draft = termInvs.filter(i => i.status === 'DRAFT').length
     return { year: t.year, term: t.term, total, paid, sent, draft }
   })
