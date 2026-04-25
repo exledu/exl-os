@@ -162,18 +162,22 @@ model Issue {
   source         String?       // "manual" | "gmail"
   rawEmail       String?       // raw snippet if sourced from email
   gmailMessageId String?       @unique // Gmail message ID for deduplication
+  gmailThreadId  String?       // Gmail thread ID for chain grouping
   createdAt      DateTime      @default(now())
   notes          IssueNote[]
+
+  @@index([gmailThreadId])
 }
 
 model IssueNote {
-  id        Int      @id @default(autoincrement())
-  issueId   Int
-  issue     Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
-  author    String
-  content   String
-  isEmail   Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id             Int      @id @default(autoincrement())
+  issueId        Int
+  issue          Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  author         String
+  content        String
+  isEmail        Boolean  @default(false)
+  gmailMessageId String?  @unique
+  createdAt      DateTime @default(now())
 }
 
 model Invoice {

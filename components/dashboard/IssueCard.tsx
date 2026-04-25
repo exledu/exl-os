@@ -137,6 +137,22 @@ export function IssueCard({ issue, onUpdate }: Props) {
     onUpdate()
   }
 
+  const [creatingStudent, setCreatingStudent] = useState(false)
+  async function createStudentFromEmail() {
+    setCreatingStudent(true)
+    try {
+      const res = await fetch(`/api/issues/${issue.id}/create-student`, { method: 'POST' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        alert(err.error ?? 'Could not extract student details from this email.')
+        return
+      }
+      onUpdate()
+    } finally {
+      setCreatingStudent(false)
+    }
+  }
+
   function openGmail() {
     if (issue.gmailMessageId) {
       window.open(`https://mail.google.com/mail/u/0/#all/${issue.gmailMessageId}`, '_blank')
@@ -264,14 +280,25 @@ export function IssueCard({ issue, onUpdate }: Props) {
                   </div>
                 </div>
               ) : (
-                <button
-                  onClick={openStudentPicker}
-                  disabled={loadingStudents}
-                  className="flex items-center gap-1 text-xs text-indigo-600 hover:underline"
-                >
-                  <UserCircle className="h-3 w-3" />
-                  {issue.student ? issue.student.name : 'Link student'}
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={openStudentPicker}
+                    disabled={loadingStudents}
+                    className="flex items-center gap-1 text-xs text-indigo-600 hover:underline"
+                  >
+                    <UserCircle className="h-3 w-3" />
+                    {issue.student ? issue.student.name : 'Link student'}
+                  </button>
+                  {!issue.student && issue.source === 'gmail' && (
+                    <button
+                      onClick={createStudentFromEmail}
+                      disabled={creatingStudent}
+                      className="text-xs text-indigo-600 hover:underline disabled:opacity-50"
+                    >
+                      {creatingStudent ? 'Creating…' : 'Create new student'}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 

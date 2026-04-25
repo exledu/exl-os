@@ -2,7 +2,7 @@ import { google, gmail_v1 } from 'googleapis'
 import { prisma } from '@/lib/db'
 import { auth } from '@/auth'
 import { NextResponse } from 'next/server'
-import { extractStudentFromForm, classifyEmail } from '@/lib/groq'
+import { classifyEmail } from '@/lib/groq'
 
 // ── MIME helpers ──────────────────────────────────────────────────────────────
 
@@ -99,48 +99,34 @@ function parseFreeTrial(text: string) {
   return result
 }
 
-// ── Auto-create student from LLM-extracted fields ────────────────────────────
+// ── Thread grouping helper ────────────────────────────────────────────────────
 
-async function autoCreateStudent(note: string, issueId: number) {
-  try {
-    const data = await extractStudentFromForm(note)
-    if (!data.firstName) return
+/**
+ * If an unresolved Issue exists for this Gmail thread, append the message as a note
+ * and return true. Otherwise return false (caller should create a new Issue).
+ */
+async function appendToThreadIfExists(opts: {
+  threadId: string
+  messageId: string
+  from: string
+  body: string
+}): Promise<boolean> {
+  const existing = await prisma.issue.findFirst({
+    where: { gmailThreadId: opts.threadId, resolved: false },
+    select: { id: true },
+  })
+  if (!existing) return false
 
-    // Find year level record
-    let yearLevelId: number | undefined
-    if (data.yearLevel) {
-      const yl = await prisma.yearLevel.findFirst({ where: { level: data.yearLevel } })
-      if (yl) yearLevelId = yl.id
-    }
-    if (!yearLevelId) {
-      const fallback = await prisma.yearLevel.findFirst({ orderBy: { level: 'desc' } })
-      if (!fallback) return
-      yearLevelId = fallback.id
-    }
-
-    const student = await prisma.student.create({
-      data: {
-        name:            data.firstName,
-        lastName:        data.lastName   ?? null,
-        email:           data.email      ?? null,
-        phone:           data.phone      ?? null,
-        school:          data.school     ?? null,
-        yearLevelId,
-        parentFirstName: data.parentFirstName ?? null,
-        parentLastName:  data.parentLastName  ?? null,
-        parentEmail:     data.parentEmail     ?? null,
-        parentPhone:     data.parentPhone     ?? null,
-      },
-    })
-
-    // Link student to the issue
-    await prisma.issue.update({
-      where: { id: issueId },
-      data:  { studentId: student.id },
-    })
-  } catch (err) {
-    console.error('autoCreateStudent failed:', err)
-  }
+  await prisma.issueNote.create({
+    data: {
+      issueId:        existing.id,
+      author:         opts.from,
+      content:        opts.body,
+      isEmail:        true,
+      gmailMessageId: opts.messageId,
+    },
+  })
+  return true
 }
 
 // ── Build a Gmail client from a stored token ──────────────────────────────────
@@ -178,13 +164,16 @@ async function syncBookingForms(token: { accessToken: string; refreshToken: stri
 
   const messages = listRes.data.messages ?? []
 
-  // Bulk dedup check
+  // Bulk dedup check (by Gmail message ID — could exist on Issue or IssueNote)
   const ids = messages.map(m => m.id!).filter(Boolean)
-  const existing = await prisma.issue.findMany({
-    where: { gmailMessageId: { in: ids } },
-    select: { gmailMessageId: true },
-  })
-  const seen = new Set(existing.map(e => e.gmailMessageId))
+  const [existingIssues, existingNotes] = await Promise.all([
+    prisma.issue.findMany({ where: { gmailMessageId: { in: ids } }, select: { gmailMessageId: true } }),
+    prisma.issueNote.findMany({ where: { gmailMessageId: { in: ids } }, select: { gmailMessageId: true } }),
+  ])
+  const seen = new Set([
+    ...existingIssues.map(e => e.gmailMessageId),
+    ...existingNotes.map(e => e.gmailMessageId),
+  ])
   const newMessages = messages.filter(m => m.id && !seen.has(m.id))
 
   if (newMessages.length === 0) return 0
@@ -200,6 +189,7 @@ async function syncBookingForms(token: { accessToken: string; refreshToken: stri
         const full    = await gmail.users.messages.get({ userId: 'me', id: msg.id!, format: 'full' })
         const payload = full.data.payload
         if (!payload) return
+        const threadId = full.data.threadId ?? undefined
 
         const plainText   = extractPlainText(payload)
         const isFreeTrial = plainText.includes('Student Full Name') || plainText.includes('Free Trial')
@@ -235,7 +225,15 @@ async function syncBookingForms(token: { accessToken: string; refreshToken: stri
 
         if (contactName === 'Unknown' && !note.trim()) return
 
-        const issue = await prisma.issue.create({
+        // If an unresolved issue already exists for this thread, append as note
+        if (threadId) {
+          const appended = await appendToThreadIfExists({
+            threadId, messageId: msg.id!, from: contactName, body: note,
+          })
+          if (appended) return
+        }
+
+        await prisma.issue.create({
           data: {
             type:           'FREE_TRIAL',
             priority:       'MEDIUM',
@@ -243,10 +241,10 @@ async function syncBookingForms(token: { accessToken: string; refreshToken: stri
             note,
             source:         'gmail',
             gmailMessageId: msg.id!,
+            gmailThreadId:  threadId,
             resolved:       false,
           },
         })
-        autoCreateStudent(note, issue.id)
         return 1
       })
     )
@@ -272,13 +270,16 @@ async function syncAdminInbox(token: { accessToken: string; refreshToken: string
 
   const messages = listRes.data.messages ?? []
 
-  // Filter out already-processed messages in one DB query
+  // Filter out already-processed messages (could be on Issue or IssueNote)
   const ids = messages.map(m => m.id!).filter(Boolean)
-  const existing = await prisma.issue.findMany({
-    where: { gmailMessageId: { in: ids } },
-    select: { gmailMessageId: true },
-  })
-  const seen = new Set(existing.map(e => e.gmailMessageId))
+  const [existingIssues, existingNotes] = await Promise.all([
+    prisma.issue.findMany({ where: { gmailMessageId: { in: ids } }, select: { gmailMessageId: true } }),
+    prisma.issueNote.findMany({ where: { gmailMessageId: { in: ids } }, select: { gmailMessageId: true } }),
+  ])
+  const seen = new Set([
+    ...existingIssues.map(e => e.gmailMessageId),
+    ...existingNotes.map(e => e.gmailMessageId),
+  ])
   const newMessages = messages.filter(m => m.id && !seen.has(m.id))
 
   if (newMessages.length === 0) return 0
@@ -294,11 +295,20 @@ async function syncAdminInbox(token: { accessToken: string; refreshToken: string
         const full    = await gmail.users.messages.get({ userId: 'me', id: msg.id!, format: 'full' })
         const payload = full.data.payload
         if (!payload) return
+        const threadId = full.data.threadId ?? undefined
 
         const subject   = getHeader(payload.headers, 'subject')
         const from      = getHeader(payload.headers, 'from')
         const plainText = extractPlainText(payload)
         if (!plainText.trim()) return
+
+        // If an unresolved issue already exists for this thread, append as note (no LLM cost)
+        if (threadId) {
+          const appended = await appendToThreadIfExists({
+            threadId, messageId: msg.id!, from, body: plainText,
+          })
+          if (appended) return
+        }
 
         let classification: Awaited<ReturnType<typeof classifyEmail>>
         try {
@@ -306,7 +316,7 @@ async function syncAdminInbox(token: { accessToken: string; refreshToken: string
         } catch { return }
         if (!classification.isIssue || !classification.type) return
 
-        const issue = await prisma.issue.create({
+        await prisma.issue.create({
           data: {
             type:           classification.type,
             priority:       classification.priority ?? 'MEDIUM',
@@ -314,11 +324,10 @@ async function syncAdminInbox(token: { accessToken: string; refreshToken: string
             note:           classification.summary ?? '',
             source:         'gmail',
             gmailMessageId: msg.id!,
+            gmailThreadId:  threadId,
             resolved:       false,
           },
         })
-
-        if (plainText.length > 50) autoCreateStudent(plainText, issue.id)
         return 1
       })
     )
