@@ -30,6 +30,7 @@ interface ClassSummary {
   recurrenceStart: string | null
   _count: { enrolments: number }
   maxCapacity: number
+  archived?: boolean
 }
 
 interface EnrolledStudent {
@@ -85,6 +86,8 @@ function fmtDate(dateStr: string) {
 export function ClassesView() {
   const searchParams = useSearchParams()
   const [classes, setClasses]       = useState<ClassSummary[]>([])
+  const [archivedClasses, setArchivedClasses] = useState<ClassSummary[]>([])
+  const [showArchived, setShowArchived] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [detail, setDetail]         = useState<ClassDetail | null>(null)
   const [terms, setTerms]           = useState<TermGroup[]>([])
@@ -105,8 +108,27 @@ export function ClassesView() {
   const [initialisingTerm, setInitialisingTerm] = useState(false)
 
   async function loadClasses() {
-    const res = await fetch('/api/classes')
-    if (res.ok) setClasses(await res.json())
+    const [activeRes, archivedRes] = await Promise.all([
+      fetch('/api/classes'),
+      fetch('/api/classes?archived=true'),
+    ])
+    if (activeRes.ok) setClasses(await activeRes.json())
+    if (archivedRes.ok) setArchivedClasses(await archivedRes.json())
+  }
+
+  async function toggleArchive(classId: number, archive: boolean) {
+    const res = await fetch(`/api/classes/${classId}/archive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archived: archive }),
+    })
+    if (res.ok) {
+      if (selectedId === classId) {
+        setSelectedId(null)
+        setDetail(null)
+      }
+      await loadClasses()
+    }
   }
 
   async function loadStaff() {
@@ -266,6 +288,46 @@ export function ClassesView() {
             </div>
           )}
         </div>
+
+        {/* Archived classes dropdown */}
+        {archivedClasses.length > 0 && (
+          <div className="border-t border-gray-100">
+            <button
+              onClick={() => setShowArchived(v => !v)}
+              className="w-full px-4 py-3 flex items-center justify-between text-xs font-medium text-gray-500 hover:bg-gray-50 transition-colors"
+            >
+              <span>Archived ({archivedClasses.length})</span>
+              {showArchived ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
+            {showArchived && (
+              <div className="max-h-64 overflow-y-auto bg-gray-50/40">
+                {archivedClasses.map(cls => {
+                  const col = subjectColour(cls.subject.name, cls.yearLevel.level)
+                  const active = selectedId === cls.id
+                  return (
+                    <button
+                      key={cls.id}
+                      onClick={() => selectClass(cls.id)}
+                      className={`w-full text-left px-4 py-2.5 flex items-center gap-3 transition-all duration-200 border-b border-gray-100 opacity-60 hover:opacity-100 ${
+                        active ? 'bg-blue-50/80 border-l-3 border-l-[#002F67] opacity-100' : 'border-l-3 border-l-transparent hover:bg-white'
+                      }`}
+                    >
+                      <div className="h-3 w-3 rounded-full flex-shrink-0" style={{ backgroundColor: col }} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-gray-700 truncate">
+                          Yr {cls.yearLevel.level} {cls.subject.name}
+                        </p>
+                        <p className="text-xs text-gray-400 truncate mt-0.5">
+                          {cls.staff.name}
+                        </p>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── RIGHT: class detail ──────────────────────────────────── */}
@@ -299,12 +361,20 @@ export function ClassesView() {
                       {' · '}{scheduleLabel(detail)}
                     </p>
                   </div>
-                  <Link
-                    href={`/classes/${detail.id}/edit`}
-                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all duration-200"
-                  >
-                    Edit Class
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => toggleArchive(detail.id, !detail.archived)}
+                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all duration-200"
+                    >
+                      {detail.archived ? 'Unarchive' : 'Archive'}
+                    </button>
+                    <Link
+                      href={`/classes/${detail.id}/edit`}
+                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all duration-200"
+                    >
+                      Edit Class
+                    </Link>
+                  </div>
                 </div>
               </div>
             </div>

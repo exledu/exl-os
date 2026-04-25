@@ -1,8 +1,12 @@
 import { prisma } from '@/lib/db'
 import { generateSessions, createOneOffSession } from '@/lib/sessions'
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url)
+  const archived = searchParams.get('archived') === 'true'
+
   const classes = await prisma.class.findMany({
+    where: { archived },
     include: {
       subject: true,
       yearLevel: true,

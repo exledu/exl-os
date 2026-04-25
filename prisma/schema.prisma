@@ -91,6 +91,7 @@ model Class {
   recurrenceStart DateTime?
   recurrenceEnd   DateTime?
   sessionDate     DateTime?
+  archived        Boolean        @default(false)
   enrolments      Enrolment[]
   sessions        ClassSession[]
   createdAt       DateTime       @default(now())
