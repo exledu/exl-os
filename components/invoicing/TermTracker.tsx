@@ -102,15 +102,23 @@ export function TermTracker() {
     return result
   }, [invoices])
 
-  // Filter students by search
-  const filtered = students.filter(s => {
+  // Filter students by search, then sort by current-term status: uninvoiced → unpaid → paid
+  const filtered = useMemo(() => {
     const q = search.toLowerCase()
-    return (
+    const matched = students.filter(s =>
       s.name.toLowerCase().includes(q) ||
       (s.lastName ?? '').toLowerCase().includes(q) ||
       `yr ${s.yearLevel.level}`.includes(q)
     )
-  })
+    const currentTerm = termColumns[0]
+    const statusRank: Record<string, number> = { none: 0, sent: 1, paid: 2 }
+    return [...matched].sort((a, b) => {
+      const sa = invoiceLookup.get(`${a.id}-${currentTerm.year}-${currentTerm.term}`)?.status ?? 'none'
+      const sb = invoiceLookup.get(`${b.id}-${currentTerm.year}-${currentTerm.term}`)?.status ?? 'none'
+      if (statusRank[sa] !== statusRank[sb]) return statusRank[sa] - statusRank[sb]
+      return fullName(a).localeCompare(fullName(b))
+    })
+  }, [students, search, termColumns, invoiceLookup])
 
   if (loading) {
     return (
