@@ -19,6 +19,18 @@ function makeGmailClient(tokenRecord: { accessToken: string; refreshToken: strin
     access_token: tokenRecord.accessToken,
     refresh_token: tokenRecord.refreshToken ?? undefined,
   })
+  // Persist refreshed access tokens
+  oauth2Client.on('tokens', (tokens) => {
+    if (tokens.access_token) {
+      prisma.oAuthToken.updateMany({
+        where: { accessToken: tokenRecord.accessToken },
+        data: {
+          accessToken: tokens.access_token,
+          expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+        },
+      }).catch(() => {})
+    }
+  })
   return google.gmail({ version: 'v1', auth: oauth2Client })
 }
 
