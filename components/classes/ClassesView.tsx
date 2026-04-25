@@ -540,6 +540,13 @@ function TermSection({
 
 // ── WeekRow ────────────────────────────────────────────────────────────────
 
+interface AttendanceRow {
+  studentId: number
+  name: string
+  lastName: string | null
+  present: boolean
+}
+
 function WeekRow({
   week,
   termNumber,
@@ -561,6 +568,38 @@ function WeekRow({
   const [editingStaff, setEditingStaff]   = useState(false)
   const [newDate, setNewDate]             = useState(week.date)
   const [saving, setSaving]               = useState(false)
+  const [expanded, setExpanded]           = useState(false)
+  const [attendance, setAttendance]       = useState<AttendanceRow[] | null>(null)
+  const [loadingAttendance, setLoadingAttendance] = useState(false)
+
+  async function loadAttendance() {
+    setLoadingAttendance(true)
+    try {
+      const res = await fetch(`/api/sessions/${week.id}/attendance`)
+      if (res.ok) setAttendance(await res.json())
+    } finally {
+      setLoadingAttendance(false)
+    }
+  }
+
+  async function toggleAttendance(studentId: number, present: boolean) {
+    // Optimistic update
+    setAttendance(prev => prev?.map(a => a.studentId === studentId ? { ...a, present } : a) ?? null)
+    await fetch(`/api/sessions/${week.id}/attendance`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, present }),
+    })
+  }
+
+  function toggleExpand() {
+    const next = !expanded
+    setExpanded(next)
+    if (next && attendance === null) loadAttendance()
+  }
+
+  const presentCount = attendance?.filter(a => a.present).length ?? 0
+  const totalStudents = attendance?.length ?? 0
 
   const effectiveStaffId   = week.staffId ?? defaultStaffId
   const effectiveStaffName = week.staffId ? (week.staffName ?? defaultStaffName) : defaultStaffName
@@ -604,7 +643,17 @@ function WeekRow({
   }
 
   return (
-    <div className={`flex items-center gap-2 py-2 px-2 rounded-xl hover:bg-blue-50/50 transition-all duration-200 group ${week.cancelled ? 'opacity-40' : ''}`}>
+    <div className={`rounded-xl ${week.cancelled ? 'opacity-40' : ''}`}>
+      <div className="flex items-center gap-2 py-2 px-2 rounded-xl hover:bg-blue-50/50 transition-all duration-200 group">
+      {/* Expand toggle */}
+      <button
+        onClick={toggleExpand}
+        disabled={week.cancelled}
+        className="rounded-md p-0.5 text-gray-400 hover:text-[#002F67] hover:bg-blue-50 transition-all flex-shrink-0 disabled:cursor-not-allowed"
+      >
+        {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+      </button>
+
       {/* Colour bar */}
       <div className="w-0.5 h-8 rounded-full flex-shrink-0" style={{ backgroundColor: colour, opacity: 0.6 }} />
 
@@ -710,6 +759,63 @@ function WeekRow({
           </div>
         )}
       </div>
+
+      {/* Attendance summary on collapsed row */}
+      {!expanded && attendance && totalStudents > 0 && (
+        <span className="text-xs text-gray-400 flex-shrink-0 ml-1">
+          {presentCount}/{totalStudents}
+        </span>
+      )}
+      </div>
+
+      {/* Expanded attendance panel */}
+      {expanded && (
+        <div className="ml-12 mr-2 mb-2 px-3 py-2 rounded-xl bg-gray-50/60 border border-gray-100">
+          {loadingAttendance && (
+            <div className="text-xs text-gray-400">Loading attendance…</div>
+          )}
+          {!loadingAttendance && attendance && attendance.length === 0 && (
+            <div className="text-xs text-gray-400">No students enrolled.</div>
+          )}
+          {!loadingAttendance && attendance && attendance.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold text-gray-600">Attendance</span>
+                <span className="text-xs text-gray-400">{presentCount}/{totalStudents} present</span>
+              </div>
+              {attendance.map(row => (
+                <div key={row.studentId} className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-white/80 transition-colors">
+                  <span className="text-xs text-gray-700">
+                    {row.name}{row.lastName ? ` ${row.lastName}` : ''}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => toggleAttendance(row.studentId, true)}
+                      className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
+                        row.present
+                          ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                          : 'bg-white text-gray-400 border border-gray-200 hover:bg-emerald-50'
+                      }`}
+                    >
+                      Y
+                    </button>
+                    <button
+                      onClick={() => toggleAttendance(row.studentId, false)}
+                      className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
+                        !row.present
+                          ? 'bg-rose-100 text-rose-700 border border-rose-200'
+                          : 'bg-white text-gray-400 border border-gray-200 hover:bg-rose-50'
+                      }`}
+                    >
+                      N
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

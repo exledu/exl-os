@@ -69,6 +69,7 @@ model Student {
   enrolments  Enrolment[]
   issues      Issue[]
   invoices    Invoice[]
+  attendances Attendance[]
   createdAt   DateTime    @default(now())
 }
 
@@ -106,6 +107,20 @@ model ClassSession {
   originalDate DateTime? @db.Date
   staffId      Int?      @map("tutorId")
   staff        Staff?    @relation(fields: [staffId], references: [id])
+  attendances  Attendance[]
+}
+
+model Attendance {
+  id        Int          @id @default(autoincrement())
+  sessionId Int
+  session   ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId Int
+  student   Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  present   Boolean      @default(false)
+  updatedAt DateTime     @updatedAt
+
+  @@unique([sessionId, studentId])
+  @@index([sessionId])
 }
 
 model Enrolment {
