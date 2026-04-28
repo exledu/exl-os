@@ -8,6 +8,7 @@ export async function proxy(request: NextRequest) {
   const isPublic =
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/slack') ||
+    pathname.startsWith('/api/cron') ||
     pathname === '/login' ||
     pathname.startsWith('/_next') ||
     pathname === '/favicon.ico'
