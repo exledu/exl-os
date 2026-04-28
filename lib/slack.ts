@@ -130,11 +130,11 @@ export async function removeReaction(channel: string, timestamp: string, name: s
 }
 
 /** Send a DM to a user. */
-export async function sendDM(userId: string, text: string) {
+export async function sendDM(userId: string, text: string, opts?: { blocks?: unknown[] }) {
   // Open a DM conversation first
   const conv = await slackApi('conversations.open', { users: userId })
   if (!conv.ok) return conv
-  return postMessage(conv.channel.id, text)
+  return postMessage(conv.channel.id, text, opts)
 }
 
 /** Get the bot's own user ID (for filtering out bot reactions). */
@@ -175,4 +175,11 @@ async function refreshEmailCache(): Promise<Map<string, string>> {
 export async function getSlackUserEmail(userId: string): Promise<string | null> {
   const cache = await refreshEmailCache()
   return cache.get(userId) ?? null
+}
+
+/** Look up a Slack user id by email address. Uses users.lookupByEmail (single API call). */
+export async function lookupSlackUserByEmail(email: string): Promise<string | null> {
+  const data = await slackApi('users.lookupByEmail', { email })
+  if (data.ok && data.user?.id) return data.user.id as string
+  return null
 }

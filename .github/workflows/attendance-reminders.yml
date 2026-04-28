@@ -1,0 +1,23 @@
+name: Attendance Reminders
+
+on:
+  schedule:
+    # Every 5 minutes. GitHub may delay/skip during high load.
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # allow manual trigger from GitHub UI
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit attendance reminder endpoint
+        run: |
+          response=$(curl -sS -o /tmp/body -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.DEPLOY_URL }}/api/cron/attendance-reminders")
+          echo "Status: $response"
+          echo "Body:"
+          cat /tmp/body
+          if [ "$response" != "200" ]; then
+            exit 1
+          fi
