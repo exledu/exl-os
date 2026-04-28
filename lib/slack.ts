@@ -179,7 +179,16 @@ export async function getSlackUserEmail(userId: string): Promise<string | null> 
 
 /** Look up a Slack user id by email address. Uses users.lookupByEmail (single API call). */
 export async function lookupSlackUserByEmail(email: string): Promise<string | null> {
-  const data = await slackApi('users.lookupByEmail', { email })
-  if (data.ok && data.user?.id) return data.user.id as string
-  return null
+  // Note: this endpoint requires email as a form-encoded body or query string,
+  // NOT JSON — Slack rejects JSON body with "not_authed".
+  const res = await fetch(`https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(email)}`, {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
+  })
+  const data = await res.json()
+  if (!data.ok) {
+    console.error('Slack lookupByEmail error:', data.error, 'for', email)
+    return null
+  }
+  return data.user?.id ?? null
 }
