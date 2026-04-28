@@ -4,24 +4,36 @@ import { buildAttendanceDmBlocks } from '@/lib/slack-attendance'
 
 export const dynamic = 'force-dynamic'
 
+// startTime/endTime strings (e.g. "16:10") are stored as Sydney local time.
+// The cron may run in any timezone (Vercel = UTC), so we compute the Sydney
+// UTC-offset for a given date and combine accordingly.
+function sydneyOffsetMinutes(forDate: Date): number {
+  const sydney = new Date(forDate.toLocaleString('en-US', { timeZone: 'Australia/Sydney' }))
+  const utc    = new Date(forDate.toLocaleString('en-US', { timeZone: 'UTC' }))
+  return Math.round((sydney.getTime() - utc.getTime()) / 60000)
+}
+
 function combineDateAndTime(date: Date, time: string): Date {
   const [h, m] = time.split(':').map(Number)
-  const d = new Date(date)
-  // session times are stored in local Sydney time but date is a Date column
-  // we treat both as UTC offsets; downstream comparison is just minute-deltas so timezone is consistent
-  d.setHours(h, m, 0, 0)
-  return d
+  const offsetMin = sydneyOffsetMinutes(date)
+  const utcMs = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), h, m)
+                - offsetMin * 60_000
+  return new Date(utcMs)
 }
 
-function todayDateOnly(): Date {
+// Date range for the query: yesterday → tomorrow (UTC), so we never miss a
+// session whose Sydney date sits on either side of UTC midnight.
+function yesterdayUTC(): Date {
   const d = new Date()
-  d.setHours(0, 0, 0, 0)
+  d.setUTCHours(0, 0, 0, 0)
+  d.setUTCDate(d.getUTCDate() - 1)
   return d
 }
 
-function tomorrowDateOnly(): Date {
-  const d = todayDateOnly()
-  d.setDate(d.getDate() + 1)
+function tomorrowUTC(): Date {
+  const d = new Date()
+  d.setUTCHours(0, 0, 0, 0)
+  d.setUTCDate(d.getUTCDate() + 1)
   return d
 }
 
@@ -40,7 +52,7 @@ export async function GET(request: Request) {
     where: {
       cancelled: false,
       attendanceReminderLevel: { lt: 3 },
-      date: { gte: todayDateOnly(), lt: tomorrowDateOnly() },
+      date: { gte: yesterdayUTC(), lte: tomorrowUTC() },
     },
     include: {
       class: {
