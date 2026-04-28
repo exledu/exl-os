@@ -115,6 +115,8 @@ model ClassSession {
   trials       TrialEnrolment[]
   // 0 = no reminders sent, 1 = initial DM (at session start), 2 = +30min follow-up, 3 = +40min final
   attendanceReminderLevel Int @default(0)
+  // Set when the first attendance modal submit fires parent emails. Subsequent submits skip emails.
+  parentEmailsSentAt      DateTime?
 }
 
 model TrialEnrolment {

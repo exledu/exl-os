@@ -2,6 +2,8 @@ import { verifySlackSignature, postMessage, addReaction, pinMessage, openModal }
 import { prisma } from '@/lib/db'
 import { format } from 'date-fns'
 import { buildAttendanceModalView, type HomeworkStatus } from '@/lib/slack-attendance'
+import { sendGmailEmail } from '@/lib/gmail-send'
+import { buildParentEmail } from '@/lib/parent-email'
 
 export async function POST(request: Request) {
   const rawBody = await request.text()
@@ -124,6 +126,50 @@ async function handleAttendanceSubmit(payload: {
       update: { present: u.present, homework: u.homework },
     })
   ))
+
+  // Send parent emails ONLY on the first submit per session
+  const session = await prisma.classSession.findUnique({
+    where: { id: sessionId },
+    include: {
+      class: { include: { subject: true, yearLevel: true } },
+    },
+  })
+  if (session && !session.parentEmailsSentAt) {
+    const students = await prisma.student.findMany({
+      where:  { id: { in: updates.map(u => u.studentId) } },
+      select: { id: true, name: true, lastName: true, parentFirstName: true, parentEmail: true },
+    })
+    const studentMap = new Map(students.map(s => [s.id, s]))
+    const classYearLabel = `Yr ${session.class.yearLevel.level}`
+    const subjectName = session.class.subject.name
+
+    await Promise.allSettled(updates.map(async u => {
+      const s = studentMap.get(u.studentId)
+      if (!s?.parentEmail) return
+      const email = buildParentEmail({
+        parentFirstName:  s.parentFirstName,
+        studentFirstName: s.name,
+        studentLastName:  s.lastName,
+        classYearLabel,
+        subject:          subjectName,
+        sessionDate:      session.date,
+        outcome: u.present
+          ? { kind: 'homework', status: u.homework }
+          : { kind: 'absent' },
+      })
+      if (!email) return
+      try {
+        await sendGmailEmail({ to: s.parentEmail, subject: email.subject, html: email.html })
+      } catch (e) {
+        console.error(`Failed parent email for student ${s.id}:`, e)
+      }
+    }))
+
+    await prisma.classSession.update({
+      where: { id: sessionId },
+      data:  { parentEmailsSentAt: new Date() },
+    })
+  }
 
   return Response.json({ response_action: 'clear' })
 }
