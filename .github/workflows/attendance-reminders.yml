@@ -1,9 +1,8 @@
 name: Attendance Reminders
 
 on:
-  schedule:
-    # Every 5 minutes. GitHub may delay/skip during high load.
-    - cron: '*/5 * * * *'
+  # Schedule disabled — primary cron now runs via cron-job.org for reliability.
+  # Kept as manual fallback only.
   workflow_dispatch: # allow manual trigger from GitHub UI
 
 jobs:
