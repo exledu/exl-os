@@ -60,6 +60,7 @@ export async function GET(request: Request) {
           subject: true,
           yearLevel: true,
           enrolments: { select: { studentId: true } },
+          staff: { select: { id: true, name: true, email: true, slackUserId: true } },
         },
       },
       staff: { select: { id: true, name: true, email: true, slackUserId: true } },
@@ -96,8 +97,8 @@ export async function GET(request: Request) {
       continue
     }
 
-    // Resolve the teacher's Slack user id
-    const teacher = session.staff
+    // Resolve the teacher: session-level override falls back to the class's default
+    const teacher = session.staff ?? session.class.staff
     if (!teacher) {
       results.push({ sessionId: session.id, action: 'skip-no-teacher' })
       continue
