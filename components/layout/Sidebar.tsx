@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { CalendarDays, BookOpen, Users, GraduationCap, LogOut, FileText, TrendingUp } from 'lucide-react'
+import { CalendarDays, BookOpen, Users, GraduationCap, LogOut, FileText, TrendingUp, Wallet } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { signOut } from 'next-auth/react'
 import Image from 'next/image'
@@ -14,6 +14,7 @@ const navItems = [
   { href: '/students',  label: 'Students',  icon: GraduationCap },
   { href: '/invoicing', label: 'Invoicing', icon: FileText },
   { href: '/finance',   label: 'Finance',   icon: TrendingUp },
+  { href: '/payroll',   label: 'Payroll',   icon: Wallet },
 ]
 
 interface SidebarProps {
