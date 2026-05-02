@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
-import { Plus, Pencil, X, Check, ChevronDown, ChevronUp, UserCircle, Calendar, RefreshCw, ArrowRight, BookOpen } from 'lucide-react'
+import { Plus, Pencil, X, Check, ChevronDown, ChevronUp, UserCircle, Calendar, RefreshCw, ArrowRight, BookOpen, Trash2 } from 'lucide-react'
 import { subjectColour } from '@/lib/subject-colours'
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -701,6 +701,16 @@ function WeekRow({
     onUpdated()
   }
 
+  async function deleteSession() {
+    const label = `${fmtDate(week.date)} (W${week.weekNumber})`
+    if (!confirm(`Delete session ${label}? This permanently removes the session and any attendance records. This cannot be undone.`)) return
+    setSaving(true)
+    const res = await fetch(`/api/sessions/${week.id}`, { method: 'DELETE' })
+    setSaving(false)
+    if (res.ok) onUpdated()
+    else alert('Failed to delete session')
+  }
+
   async function saveStaff(staffId: number | null) {
     setSaving(true)
     await fetch(`/api/sessions/${week.id}`, {
@@ -837,6 +847,16 @@ function WeekRow({
           {presentCount}/{totalStudents}
         </span>
       )}
+
+      {/* Delete session */}
+      <button
+        onClick={deleteSession}
+        disabled={saving}
+        title="Delete session"
+        className="rounded-md p-1 text-gray-300 hover:text-rose-600 hover:bg-rose-50 transition-all opacity-0 group-hover:opacity-100 flex-shrink-0 disabled:opacity-50"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
       </div>
 
       {/* Expanded attendance panel */}
