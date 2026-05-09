@@ -3,12 +3,11 @@
 import { useState, useEffect, useMemo } from 'react'
 import { DollarSign, Users, Building2, Wallet, TrendingUp, Plus, X } from 'lucide-react'
 
-const TUTOR_RATE = 40
-
 interface ForecastData {
   year: number
   term: number
   tutorHours: number
+  tutorCost: number
   sessionCount: number
   revenue: number
   invoiceCount: number
@@ -78,7 +77,9 @@ export function FinanceView() {
     localStorage.setItem(storageKey, JSON.stringify({ rent, extras }))
   }, [storageKey, rent, extras])
 
-  const tutorCost = (data?.tutorHours ?? 0) * TUTOR_RATE
+  const tutorCost = data?.tutorCost ?? 0
+  const tutorHours = data?.tutorHours ?? 0
+  const avgRate = tutorHours > 0 ? tutorCost / tutorHours : 0
   const extrasTotal = useMemo(() => extras.reduce((s, e) => s + (e.amount || 0), 0), [extras])
   const totalCosts = tutorCost + rent + extrasTotal
   const revenue = data?.revenue ?? 0
@@ -142,7 +143,7 @@ export function FinanceView() {
             <KpiCard
               label="Tutor Costs"
               value={fmtMoney(tutorCost)}
-              sub={`${(data?.tutorHours ?? 0).toFixed(1)} hrs × $${TUTOR_RATE}`}
+              sub={`${tutorHours.toFixed(1)} hrs · avg $${avgRate.toFixed(2)}/hr`}
               icon={Users}
               tone="amber"
             />

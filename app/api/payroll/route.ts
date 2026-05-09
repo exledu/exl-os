@@ -1,18 +1,6 @@
 import { prisma } from '@/lib/db'
 import { cookies } from 'next/headers'
-
-// Compensation: $40/hr for 1-2 students, +$2/hr per extra student up to 6 ($48/hr cap)
-function rateFor(students: number): number {
-  if (students <= 2) return 40
-  if (students >= 6) return 48
-  return 40 + (students - 2) * 2
-}
-
-function parseHours(start: string, end: string): number {
-  const [sh, sm] = start.split(':').map(Number)
-  const [eh, em] = end.split(':').map(Number)
-  return ((eh * 60 + em) - (sh * 60 + sm)) / 60
-}
+import { rateFor, parseHours } from '@/lib/payroll-calc'
 
 function parseDateOnly(s: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)

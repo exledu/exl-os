@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db'
 import { cookies } from 'next/headers'
+import { rateFor, parseHours } from '@/lib/payroll-calc'
 
 // Term to month range (1-indexed terms, 0-indexed months)
 const TERM_MONTHS: Record<number, [number, number]> = {
@@ -7,12 +8,6 @@ const TERM_MONTHS: Record<number, [number, number]> = {
   2: [3, 5],
   3: [6, 8],
   4: [9, 11],
-}
-
-function parseHours(start: string, end: string): number {
-  const [sh, sm] = start.split(':').map(Number)
-  const [eh, em] = end.split(':').map(Number)
-  return ((eh * 60 + em) - (sh * 60 + sm)) / 60
 }
 
 export async function GET(request: Request) {
@@ -39,7 +34,11 @@ export async function GET(request: Request) {
         date: { gte: start, lt: end },
         cancelled: false,
       },
-      select: { startTime: true, endTime: true },
+      select: {
+        startTime: true,
+        endTime: true,
+        class: { select: { enrolments: { select: { studentId: true } } } },
+      },
     }),
     prisma.invoice.findMany({
       where: {
@@ -51,13 +50,22 @@ export async function GET(request: Request) {
     }),
   ])
 
-  const tutorHours = sessions.reduce((sum, s) => sum + parseHours(s.startTime, s.endTime), 0)
+  // Per-session: rate scales with enrolment count (matches Payroll tab logic)
+  let tutorHours = 0
+  let tutorCost = 0
+  for (const s of sessions) {
+    const hours = parseHours(s.startTime, s.endTime)
+    const rate  = rateFor(s.class.enrolments.length)
+    tutorHours += hours
+    tutorCost  += hours * rate
+  }
   const revenue = invoices.reduce((sum, i) => sum + i.total, 0)
 
   return Response.json({
     year,
     term,
     tutorHours,
+    tutorCost,
     sessionCount: sessions.length,
     revenue,
     invoiceCount: invoices.length,
