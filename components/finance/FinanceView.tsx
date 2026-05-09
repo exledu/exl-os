@@ -11,6 +11,17 @@ interface ForecastData {
   sessionCount: number
   revenue: number
   invoiceCount: number
+  rangeStart: string | null
+  rangeEnd:   string | null
+}
+
+function fmtRange(start: string | null, end: string | null) {
+  if (!start || !end) return null
+  const fmt = (s: string) => {
+    const [y, m, d] = s.split('-').map(Number)
+    return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+  }
+  return `${fmt(start)} → ${fmt(end)}`
 }
 
 interface ExtraExpense {
@@ -102,7 +113,12 @@ export function FinanceView() {
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold text-[#002F67]">Financial Forecast</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-[#002F67]">Financial Forecast</h1>
+          {data && fmtRange(data.rangeStart, data.rangeEnd) && (
+            <p className="text-xs text-gray-500 mt-0.5">Sessions: {fmtRange(data.rangeStart, data.rangeEnd)}</p>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <select
             value={year}
