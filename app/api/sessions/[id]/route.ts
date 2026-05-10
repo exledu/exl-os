@@ -27,6 +27,23 @@ export async function PATCH(request: Request, ctx: RouteContext<'/api/sessions/[
     data.staffId = body.staffId ?? null
   }
 
+  const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+  if (typeof body.startTime === 'string') {
+    if (!TIME_RE.test(body.startTime)) return new Response('Invalid startTime', { status: 400 })
+    data.startTime = body.startTime
+  }
+  if (typeof body.endTime === 'string') {
+    if (!TIME_RE.test(body.endTime)) return new Response('Invalid endTime', { status: 400 })
+    data.endTime = body.endTime
+  }
+
+  // Cross-field validation: end must be strictly after start
+  const finalStart = data.startTime ?? current.startTime
+  const finalEnd   = data.endTime   ?? current.endTime
+  if (finalEnd <= finalStart) {
+    return new Response('endTime must be after startTime', { status: 400 })
+  }
+
   const session = await prisma.classSession.update({ where: { id: sessionId }, data })
 
   if (actorStaffId) {
@@ -35,6 +52,11 @@ export async function PATCH(request: Request, ctx: RouteContext<'/api/sessions/[
     }
     if ('staffId' in body) {
       logAction({ staffId: actorStaffId, type: 'session_staff_changed', description: 'Changed session staff', metadata: { sessionId } })
+    }
+    if (typeof body.startTime === 'string' || typeof body.endTime === 'string') {
+      const finalStart = data.startTime ?? current.startTime
+      const finalEnd   = data.endTime   ?? current.endTime
+      logAction({ staffId: actorStaffId, type: 'session_rescheduled', description: `Changed session time to ${finalStart}–${finalEnd}`, metadata: { sessionId } })
     }
   }
 

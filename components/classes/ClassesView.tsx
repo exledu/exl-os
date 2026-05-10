@@ -637,7 +637,10 @@ function WeekRow({
 }) {
   const [editingDate, setEditingDate]     = useState(false)
   const [editingStaff, setEditingStaff]   = useState(false)
+  const [editingTime, setEditingTime]     = useState(false)
   const [newDate, setNewDate]             = useState(week.date)
+  const [newStart, setNewStart]           = useState(week.startTime)
+  const [newEnd, setNewEnd]               = useState(week.endTime)
   const [saving, setSaving]               = useState(false)
   const [expanded, setExpanded]           = useState(false)
   const [attendance, setAttendance]       = useState<AttendanceRow[] | null>(null)
@@ -709,6 +712,26 @@ function WeekRow({
     setSaving(false)
     if (res.ok) onUpdated()
     else alert('Failed to delete session')
+  }
+
+  async function saveTime() {
+    if (newEnd <= newStart) {
+      alert('End time must be after start time')
+      return
+    }
+    setSaving(true)
+    const res = await fetch(`/api/sessions/${week.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startTime: newStart, endTime: newEnd }),
+    })
+    setSaving(false)
+    if (res.ok) {
+      setEditingTime(false)
+      onUpdated()
+    } else {
+      alert('Failed to save time')
+    }
   }
 
   async function saveStaff(staffId: number | null) {
@@ -790,6 +813,51 @@ function WeekRow({
             )}
             <button
               onClick={() => setEditingDate(true)}
+              className="rounded-md p-1 text-gray-300 hover:text-[#002F67] hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100"
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Time section */}
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        {editingTime ? (
+          <div className="flex items-center gap-1">
+            <input
+              type="time"
+              value={newStart}
+              onChange={e => setNewStart(e.target.value)}
+              className="rounded-lg border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#002F67]/20 focus:border-[#002F67]/40"
+              autoFocus
+            />
+            <span className="text-xs text-gray-400">–</span>
+            <input
+              type="time"
+              value={newEnd}
+              onChange={e => setNewEnd(e.target.value)}
+              className="rounded-lg border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#002F67]/20 focus:border-[#002F67]/40"
+            />
+            <button
+              onClick={saveTime}
+              disabled={saving}
+              className="rounded-md p-1 text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-50"
+            >
+              <Check className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => { setEditingTime(false); setNewStart(week.startTime); setNewEnd(week.endTime) }}
+              className="rounded-md p-1 text-gray-400 hover:bg-gray-100 transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-500 tabular-nums">{week.startTime}–{week.endTime}</span>
+            <button
+              onClick={() => setEditingTime(true)}
               className="rounded-md p-1 text-gray-300 hover:text-[#002F67] hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100"
             >
               <Pencil className="h-3 w-3" />
