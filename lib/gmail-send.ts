@@ -38,18 +38,28 @@ export async function sendGmailEmail({ to, subject, html, from = 'admin@exleduca
   }
 
   const gmail = google.gmail({ version: 'v1', auth: oauth2 })
+
+  // Subject must be ASCII; encode non-ASCII as RFC 2047 encoded-word (base64).
+  const encodeHeader = (s: string) =>
+    /^[\x20-\x7E]*$/.test(s)
+      ? s
+      : `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`
+
+  // Body is base64 so any UTF-8 bytes survive intact.
+  const bodyBase64 = Buffer.from(html, 'utf8').toString('base64').replace(/(.{76})/g, '$1\r\n')
+
   const mime = [
     `From: ${from}`,
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeHeader(subject)}`,
     `MIME-Version: 1.0`,
     `Content-Type: text/html; charset="UTF-8"`,
-    `Content-Transfer-Encoding: 7bit`,
+    `Content-Transfer-Encoding: base64`,
     ``,
-    html,
+    bodyBase64,
   ].join('\r\n')
 
-  const encoded = Buffer.from(mime)
+  const encoded = Buffer.from(mime, 'utf8')
     .toString('base64')
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
