@@ -1,8 +1,6 @@
 import { format } from 'date-fns'
 
-export type SessionOutcome =
-  | { kind: 'absent' }
-  | { kind: 'homework'; status: 'UNATTEMPTED' | 'INCOMPLETE' | 'SATISFACTORY' | 'EXCELLENT' }
+export type HomeworkStatus = 'UNATTEMPTED' | 'INCOMPLETE' | 'SATISFACTORY' | 'EXCELLENT'
 
 interface ParentEmailParams {
   parentFirstName: string | null
@@ -11,10 +9,9 @@ interface ParentEmailParams {
   classYearLabel:   string   // "Yr 9"
   subject:          string   // "Maths"
   sessionDate:      Date
-  outcome:          SessionOutcome
 }
 
-interface BuiltEmail {
+export interface BuiltEmail {
   subject: string
   html:    string
 }
@@ -45,51 +42,82 @@ function wrap(headerLabel: string, bodyHtml: string): string {
 </div>`
 }
 
-export function buildParentEmail(p: ParentEmailParams): BuiltEmail | null {
-  const studentFull   = p.studentLastName ? `${p.studentFirstName} ${p.studentLastName}` : p.studentFirstName
-  const dateStr       = format(p.sessionDate, 'EEEE d MMMM')
-  const classLabel    = `${p.classYearLabel} ${p.subject}`
-  const greetingName  = p.parentFirstName?.trim() || 'Parent/Guardian'
+function fullName(p: ParentEmailParams) {
+  return p.studentLastName ? `${p.studentFirstName} ${p.studentLastName}` : p.studentFirstName
+}
 
-  if (p.outcome.kind === 'absent') {
-    return {
-      subject: `Absent Notice: ${studentFull} missing from ${classLabel} Class (${dateStr})`,
-      html: wrap('Absent Notice', `
-    <p>Dear ${greetingName},</p>
+function greeting(p: ParentEmailParams) {
+  return p.parentFirstName?.trim() || 'Parent/Guardian'
+}
+
+// ── Absent Notice ─────────────────────────────────────────────────────────
+
+export function buildAbsentNotice(p: ParentEmailParams): BuiltEmail {
+  const studentFull = fullName(p)
+  const classLabel  = `${p.classYearLabel} ${p.subject}`
+  const dateStr     = format(p.sessionDate, 'EEEE d MMMM')
+  return {
+    subject: `Absent Notice: ${studentFull} missing from ${classLabel} Class (${dateStr})`,
+    html: wrap('Absent Notice', `
+    <p>Dear ${greeting(p)},</p>
     <p style="margin-top: 16px;">We've noticed that <strong>${studentFull}</strong> is missing from class today. Please reply if this is unexpected.</p>
     <p style="margin-top: 16px;">If you would like to reschedule, please respond and we'll let you know if makeup classes are available for your child (subject to availability), otherwise all lessons can be completed with our online resources.</p>`),
-    }
   }
+}
 
-  switch (p.outcome.status) {
+// ── Attendance Confirmation (parent of the homework thread) ───────────────
+
+export function buildAttendanceConfirmation(p: ParentEmailParams): BuiltEmail {
+  const studentFull = fullName(p)
+  const classLabel  = `${p.classYearLabel} ${p.subject}`
+  const dateStr     = format(p.sessionDate, 'EEEE d MMMM')
+  return {
+    subject: `Attendance Confirmation: ${studentFull} attended ${classLabel} Class (${dateStr})`,
+    html: wrap('Attendance Confirmation', `
+    <p>Dear ${greeting(p)},</p>
+    <p style="margin-top: 16px;">This is to confirm that <strong>${studentFull}</strong> attended today's <strong>${classLabel}</strong> class. Their homework update will follow in this email thread.</p>`),
+  }
+}
+
+// ── Homework Update (sent as reply to the confirmation) ───────────────────
+
+export function buildHomeworkUpdate(p: ParentEmailParams, status: HomeworkStatus): BuiltEmail {
+  const studentFull = fullName(p)
+  const classLabel  = `${p.classYearLabel} ${p.subject}`
+  // Subject MUST match the parent (Attendance Confirmation) for Gmail to thread.
+  // We prefix "Re: " — Gmail strips it when matching.
+  const parentSubject = buildAttendanceConfirmation(p).subject
+  const subject = `Re: ${parentSubject}`
+
+  switch (status) {
     case 'UNATTEMPTED':
       return {
-        subject: `Homework Update: ${studentFull} — ${classLabel} (${dateStr})`,
+        subject,
         html: wrap('Homework Unattempted', `
-    <p>Dear ${greetingName},</p>
+    <p>Dear ${greeting(p)},</p>
     <p style="margin-top: 16px;">We wanted to let you know that <strong>${studentFull}</strong> did not attempt this week's homework for <strong>${classLabel}</strong>.</p>
     <p style="margin-top: 16px;">If there's anything we should know (illness, scheduling, or content they're struggling with), please let us know and we'll work with you to get them back on track.</p>`),
       }
     case 'INCOMPLETE':
       return {
-        subject: `Homework Update: ${studentFull} — ${classLabel} (${dateStr})`,
+        subject,
         html: wrap('Homework Incomplete', `
-    <p>Dear ${greetingName},</p>
+    <p>Dear ${greeting(p)},</p>
     <p style="margin-top: 16px;"><strong>${studentFull}</strong> made a start on this week's homework for <strong>${classLabel}</strong> but didn't finish it.</p>
     <p style="margin-top: 16px;">If there was any lesson content that felt unclear, please reply and we'll get our top tutors to revisit those concepts with them before the next lesson.</p>`),
       }
     case 'SATISFACTORY':
       return {
-        subject: `Lesson Update: ${studentFull} — ${classLabel} (${dateStr})`,
+        subject,
         html: wrap('Homework Satisfactory', `
-    <p>Dear ${greetingName},</p>
+    <p>Dear ${greeting(p)},</p>
     <p style="margin-top: 16px;"><strong>${studentFull}</strong> completed this week's homework for <strong>${classLabel}</strong> to a satisfactory standard. Thank you for supporting them at home.</p>`),
       }
     case 'EXCELLENT':
       return {
-        subject: `Great Work: ${studentFull} — ${classLabel} (${dateStr})`,
+        subject,
         html: wrap('Homework Excellent', `
-    <p>Dear ${greetingName},</p>
+    <p>Dear ${greeting(p)},</p>
     <p style="margin-top: 16px;">We reviewed <strong>${studentFull}</strong>'s homework this week and found excellent responses. Well done to them, and thank you for the support at home.</p>`),
       }
   }

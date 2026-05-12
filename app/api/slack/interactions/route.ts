@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db'
 import { format } from 'date-fns'
 import { buildAttendanceModalView, type HomeworkStatus } from '@/lib/slack-attendance'
 import { sendGmailEmail } from '@/lib/gmail-send'
-import { buildParentEmail } from '@/lib/parent-email'
+import { buildAbsentNotice, buildAttendanceConfirmation, buildHomeworkUpdate } from '@/lib/parent-email'
 
 export async function POST(request: Request) {
   const rawBody = await request.text()
@@ -146,20 +146,36 @@ async function handleAttendanceSubmit(payload: {
     await Promise.allSettled(updates.map(async u => {
       const s = studentMap.get(u.studentId)
       if (!s?.parentEmail) return
-      const email = buildParentEmail({
+      const common = {
         parentFirstName:  s.parentFirstName,
         studentFirstName: s.name,
         studentLastName:  s.lastName,
         classYearLabel,
         subject:          subjectName,
         sessionDate:      session.date,
-        outcome: u.present
-          ? { kind: 'homework', status: u.homework }
-          : { kind: 'absent' },
-      })
-      if (!email) return
+      }
       try {
-        await sendGmailEmail({ to: s.parentEmail, subject: email.subject, html: email.html })
+        if (!u.present) {
+          // Absent → single standalone notice
+          const email = buildAbsentNotice(common)
+          await sendGmailEmail({ to: s.parentEmail, subject: email.subject, html: email.html })
+          return
+        }
+        // Present → confirmation, then homework update as a reply in the same thread
+        const confirmation = buildAttendanceConfirmation(common)
+        const sent = await sendGmailEmail({
+          to:      s.parentEmail,
+          subject: confirmation.subject,
+          html:    confirmation.html,
+        })
+        const hw = buildHomeworkUpdate(common, u.homework)
+        await sendGmailEmail({
+          to:        s.parentEmail,
+          subject:   hw.subject,
+          html:      hw.html,
+          threadId:  sent.threadId,
+          inReplyTo: sent.messageId,
+        })
       } catch (e) {
         console.error(`Failed parent email for student ${s.id}:`, e)
       }
