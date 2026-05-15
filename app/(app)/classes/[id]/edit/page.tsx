@@ -25,7 +25,6 @@ export default async function EditClassPage(props: PageProps<'/classes/[id]/edit
           startTime: cls.startTime,
           endTime: cls.endTime,
           recurrenceStart: cls.recurrenceStart?.toISOString() ?? null,
-          recurrenceEnd: cls.recurrenceEnd?.toISOString() ?? null,
           sessionDate: cls.sessionDate?.toISOString() ?? null,
         }}
       />

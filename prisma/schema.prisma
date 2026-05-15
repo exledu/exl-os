@@ -92,7 +92,6 @@ model Class {
   startTime       String?
   endTime         String?
   recurrenceStart DateTime?
-  recurrenceEnd   DateTime?
   sessionDate     DateTime?
   archived        Boolean        @default(false)
   enrolments      Enrolment[]

@@ -24,7 +24,6 @@ interface ClassData {
   startTime: string | null
   endTime: string | null
   recurrenceStart: string | null
-  recurrenceEnd: string | null
   sessionDate: string | null
 }
 
@@ -55,7 +54,6 @@ export function ClassForm({ initial }: { initial?: ClassData }) {
   const [startTime, setStartTime] = useState(initial?.startTime ?? '')
   const [endTime, setEndTime] = useState(initial?.endTime ?? '')
   const [recurrenceStart, setRecurrenceStart] = useState(toDateInput(initial?.recurrenceStart))
-  const [recurrenceEnd, setRecurrenceEnd] = useState(toDateInput(initial?.recurrenceEnd))
   const [sessionDate, setSessionDate] = useState(toDateInput(initial?.sessionDate))
 
   const [loaded, setLoaded] = useState(false)
@@ -88,7 +86,6 @@ export function ClassForm({ initial }: { initial?: ClassData }) {
       startTime: startTime || null,
       endTime: endTime || null,
       recurrenceStart: isRecurring && recurrenceStart ? recurrenceStart : null,
-      recurrenceEnd: isRecurring && recurrenceEnd ? recurrenceEnd : null,
       sessionDate: !isRecurring && sessionDate ? sessionDate : null,
     }
 
@@ -233,10 +230,6 @@ export function ClassForm({ initial }: { initial?: ClassData }) {
           <div className="space-y-1.5">
             <Label>Start Date</Label>
             <Input type="date" value={recurrenceStart} onChange={e => setRecurrenceStart(e.target.value)} required />
-          </div>
-          <div className="space-y-1.5">
-            <Label>End Date (optional)</Label>
-            <Input type="date" value={recurrenceEnd} onChange={e => setRecurrenceEnd(e.target.value)} />
           </div>
         </div>
       )}

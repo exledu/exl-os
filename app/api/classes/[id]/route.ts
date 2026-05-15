@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db'
-import { generateSessions, createOneOffSession } from '@/lib/sessions'
+import { initFirstTerm, rescheduleFutureSessions, createOneOffSession } from '@/lib/sessions'
 
 export async function GET(_req: Request, ctx: RouteContext<'/api/classes/[id]'>) {
   const { id } = await ctx.params
@@ -34,14 +34,21 @@ export async function PATCH(request: Request, ctx: RouteContext<'/api/classes/[i
       startTime: body.startTime ?? null,
       endTime: body.endTime ?? null,
       recurrenceStart: body.isRecurring && body.recurrenceStart ? new Date(body.recurrenceStart) : null,
-      recurrenceEnd: body.isRecurring && body.recurrenceEnd ? new Date(body.recurrenceEnd) : null,
       sessionDate: !body.isRecurring && body.sessionDate ? new Date(body.sessionDate) : null,
     },
     include: { subject: true, yearLevel: true, staff: true, room: true },
   })
 
   if (body.isRecurring) {
-    await generateSessions(cls.id)
+    // If this class has no sessions yet (e.g. just flipped from one-off → recurring),
+    // seed the first term. Otherwise just slide existing future sessions to the new
+    // day/time — never wipe terms.
+    const sessionCount = await prisma.classSession.count({ where: { classId: cls.id } })
+    if (sessionCount === 0 && cls.recurrenceStart) {
+      await initFirstTerm(cls.id, cls.recurrenceStart)
+    } else {
+      await rescheduleFutureSessions(cls.id)
+    }
   } else {
     await createOneOffSession(cls.id)
   }

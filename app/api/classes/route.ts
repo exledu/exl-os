@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db'
-import { generateSessions, createOneOffSession } from '@/lib/sessions'
+import { initFirstTerm, createOneOffSession } from '@/lib/sessions'
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -34,14 +34,16 @@ export async function POST(request: Request) {
       startTime: body.startTime ?? null,
       endTime: body.endTime ?? null,
       recurrenceStart: body.isRecurring && body.recurrenceStart ? new Date(body.recurrenceStart) : null,
-      recurrenceEnd: body.isRecurring && body.recurrenceEnd ? new Date(body.recurrenceEnd) : null,
       sessionDate: !body.isRecurring && body.sessionDate ? new Date(body.sessionDate) : null,
     },
     include: { subject: true, yearLevel: true, staff: true, room: true },
   })
 
   if (body.isRecurring) {
-    await generateSessions(cls.id)
+    // Seed exactly 10 sessions (one term) starting from the recurrence start date.
+    if (cls.recurrenceStart) {
+      await initFirstTerm(cls.id, cls.recurrenceStart)
+    }
   } else {
     await createOneOffSession(cls.id)
   }

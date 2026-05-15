@@ -1,42 +1,62 @@
-import { addDays, addMonths, setDay, startOfDay } from 'date-fns'
+import { addDays, setDay, startOfDay } from 'date-fns'
 import { prisma } from './db'
 
+const SESSIONS_PER_TERM = 10
+
 /**
- * Generate ClassSession rows for a recurring class over the next `windowMonths` months.
- * Deletes existing future sessions first to handle edits.
+ * Initialise the first term for a recurring class from a specific start date.
+ * Generates exactly 10 weekly sessions regardless of whether dates are in the past.
  */
-export async function generateSessions(classId: number, windowMonths = 3) {
+export async function initFirstTerm(classId: number, startDate: Date) {
   const cls = await prisma.class.findUnique({ where: { id: classId } })
-  if (!cls || !cls.isRecurring) return
+  if (!cls?.isRecurring || cls.dayOfWeek == null || !cls.startTime || !cls.endTime) return
 
-  const { dayOfWeek, startTime, endTime, recurrenceStart, recurrenceEnd } = cls
-  if (dayOfWeek == null || !startTime || !endTime || !recurrenceStart) return
+  // Find first matching day of week on or after startDate
+  let cursor = setDay(startOfDay(startDate), cls.dayOfWeek, { weekStartsOn: 0 })
+  if (cursor < startOfDay(startDate)) cursor = addDays(cursor, 7)
 
-  const today = startOfDay(new Date())
-  const windowEnd = addMonths(today, windowMonths)
-  const end = recurrenceEnd && recurrenceEnd < windowEnd ? recurrenceEnd : windowEnd
-  const start = recurrenceStart > today ? recurrenceStart : today
-
-  // Delete future sessions for this class
-  await prisma.classSession.deleteMany({
-    where: { classId, date: { gte: today } },
-  })
-
-  // Walk through dates in range that match dayOfWeek
   const sessions: { classId: number; date: Date; startTime: string; endTime: string }[] = []
-
-  // Find first occurrence of dayOfWeek >= start
-  let cursor = setDay(start, dayOfWeek, { weekStartsOn: 0 })
-  if (cursor < start) cursor = addDays(cursor, 7)
-
-  while (cursor <= end) {
-    sessions.push({ classId, date: startOfDay(cursor), startTime, endTime })
+  for (let i = 0; i < SESSIONS_PER_TERM; i++) {
+    sessions.push({ classId, date: startOfDay(cursor), startTime: cls.startTime, endTime: cls.endTime })
     cursor = addDays(cursor, 7)
   }
 
-  if (sessions.length > 0) {
-    await prisma.classSession.createMany({ data: sessions })
+  await prisma.classSession.createMany({ data: sessions })
+}
+
+/**
+ * Add the next term (10 sessions) for a recurring class.
+ * Skips 2 occurrences (3 weeks) after the last session, then 10 weekly sessions.
+ * e.g. last Sunday Term 1 → skip next 2 Sundays → Term 2 starts on the 3rd Sunday.
+ */
+export async function addNextTerm(classId: number) {
+  const cls = await prisma.class.findUnique({ where: { id: classId } })
+  if (!cls?.isRecurring || cls.dayOfWeek == null || !cls.startTime || !cls.endTime) return
+
+  const lastSession = await prisma.classSession.findFirst({
+    where: { classId },
+    orderBy: { date: 'desc' },
+  })
+
+  // Use the original date (not a revised date) to calculate the gap
+  const lastDate = lastSession
+    ? startOfDay(lastSession.originalDate ?? lastSession.date)
+    : null
+  const afterSkip = lastDate
+    ? addDays(lastDate, 21)
+    : startOfDay(new Date())
+
+  // Find first matching day of week on or after afterSkip
+  let cursor = setDay(afterSkip, cls.dayOfWeek, { weekStartsOn: 0 })
+  if (cursor < afterSkip) cursor = addDays(cursor, 7)
+
+  const sessions: { classId: number; date: Date; startTime: string; endTime: string }[] = []
+  for (let i = 0; i < SESSIONS_PER_TERM; i++) {
+    sessions.push({ classId, date: startOfDay(cursor), startTime: cls.startTime, endTime: cls.endTime })
+    cursor = addDays(cursor, 7)
   }
+
+  await prisma.classSession.createMany({ data: sessions })
 }
 
 /**
@@ -84,62 +104,6 @@ export async function rescheduleFutureSessions(classId: number) {
       },
     })
   }
-}
-
-/**
- * Initialise the first term for a recurring class from a specific start date.
- * Generates exactly 10 weekly sessions regardless of whether dates are in the past.
- */
-export async function initFirstTerm(classId: number, startDate: Date) {
-  const cls = await prisma.class.findUnique({ where: { id: classId } })
-  if (!cls?.isRecurring || cls.dayOfWeek == null || !cls.startTime || !cls.endTime) return
-
-  // Find first matching day of week on or after startDate
-  let cursor = setDay(startOfDay(startDate), cls.dayOfWeek, { weekStartsOn: 0 })
-  if (cursor < startOfDay(startDate)) cursor = addDays(cursor, 7)
-
-  const sessions: { classId: number; date: Date; startTime: string; endTime: string }[] = []
-  for (let i = 0; i < 10; i++) {
-    sessions.push({ classId, date: startOfDay(cursor), startTime: cls.startTime, endTime: cls.endTime })
-    cursor = addDays(cursor, 7)
-  }
-
-  await prisma.classSession.createMany({ data: sessions })
-}
-
-/**
- * Add the next term (10 sessions) for a recurring class.
- * Skips 2 occurrences (3 weeks) after the last session, then 10 weekly sessions.
- * e.g. last Sunday Term 1 → skip next 2 Sundays → Term 2 starts on the 3rd Sunday.
- */
-export async function addNextTerm(classId: number) {
-  const cls = await prisma.class.findUnique({ where: { id: classId } })
-  if (!cls?.isRecurring || cls.dayOfWeek == null || !cls.startTime || !cls.endTime) return
-
-  const lastSession = await prisma.classSession.findFirst({
-    where: { classId },
-    orderBy: { date: 'desc' },
-  })
-
-  // Use the original date (not a revised date) to calculate the gap
-  const lastDate = lastSession
-    ? startOfDay(lastSession.originalDate ?? lastSession.date)
-    : null
-  const afterSkip = lastDate
-    ? addDays(lastDate, 21)
-    : startOfDay(new Date())
-
-  // Find first matching day of week on or after afterSkip
-  let cursor = setDay(afterSkip, cls.dayOfWeek, { weekStartsOn: 0 })
-  if (cursor < afterSkip) cursor = addDays(cursor, 7)
-
-  const sessions: { classId: number; date: Date; startTime: string; endTime: string }[] = []
-  for (let i = 0; i < 10; i++) {
-    sessions.push({ classId, date: startOfDay(cursor), startTime: cls.startTime, endTime: cls.endTime })
-    cursor = addDays(cursor, 7)
-  }
-
-  await prisma.classSession.createMany({ data: sessions })
 }
 
 /**

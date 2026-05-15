@@ -294,7 +294,6 @@ async function main() {
           startTime:       c.start,
           endTime,
           recurrenceStart: RECURRENCE_START,
-          recurrenceEnd:   RECURRENCE_END,
         },
       })
       classId = cls.id
