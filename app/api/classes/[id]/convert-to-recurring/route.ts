@@ -9,9 +9,12 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params
   const classId = Number(id)
   const body = await request.json().catch(() => ({})) as {
-    dayOfWeek?: number
-    startTime?: string
-    endTime?:   string
+    dayOfWeek?:  number
+    startTime?:  string
+    endTime?:    string
+    /** Week of the term the trial corresponds to (1..10). 1 = student joined at start
+     *  of term (pad 9 more sessions). 4 = student joined at W4 mid-term (pad 6 more). */
+    weekOfTerm?: number
   }
 
   const cls = await prisma.class.findUnique({
@@ -30,9 +33,13 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const startTime = body.startTime ?? trial.startTime
   const endTime   = body.endTime   ?? trial.endTime
 
+  const weekOfTerm = body.weekOfTerm ?? 1
   if (dayOfWeek < 0 || dayOfWeek > 6) return new Response('Invalid dayOfWeek', { status: 400 })
   if (!TIME_RE.test(startTime) || !TIME_RE.test(endTime)) return new Response('Invalid time', { status: 400 })
   if (endTime <= startTime) return new Response('endTime must be after startTime', { status: 400 })
+  if (!Number.isInteger(weekOfTerm) || weekOfTerm < 1 || weekOfTerm > SESSIONS_PER_TERM) {
+    return new Response('weekOfTerm must be 1..10', { status: 400 })
+  }
 
   // Flip the class to recurring
   await prisma.class.update({
@@ -62,7 +69,9 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const dayDiff = (dayOfWeek - cursor.getUTCDay() + 7) % 7
   cursor.setUTCDate(cursor.getUTCDate() + dayDiff)
 
-  const need = SESSIONS_PER_TERM - 1
+  // Pad enough sessions to round out the current term. If the trial is W4 (mid-term),
+  // we only need 6 more (10 - 4) to finish Term 1.
+  const need = SESSIONS_PER_TERM - weekOfTerm
   const newRows: { classId: number; date: Date; startTime: string; endTime: string }[] = []
   for (let i = 0; i < need; i++) {
     newRows.push({

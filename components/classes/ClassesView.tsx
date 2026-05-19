@@ -111,6 +111,7 @@ export function ClassesView() {
   const [convertDay, setConvertDay]     = useState<number>(0)
   const [convertStart, setConvertStart] = useState('')
   const [convertEnd, setConvertEnd]     = useState('')
+  const [convertWeek, setConvertWeek]   = useState<number>(1)
   const [converting, setConverting]     = useState(false)
 
   async function loadClasses() {
@@ -235,7 +236,7 @@ export function ClassesView() {
     const res = await fetch(`/api/classes/${selectedId}/convert-to-recurring`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dayOfWeek: convertDay, startTime: convertStart, endTime: convertEnd }),
+      body: JSON.stringify({ dayOfWeek: convertDay, startTime: convertStart, endTime: convertEnd, weekOfTerm: convertWeek }),
     })
     setConverting(false)
     if (!res.ok) {
@@ -570,10 +571,22 @@ export function ClassesView() {
                   <div>
                     <p className="text-sm font-semibold text-[#002F67]">Convert trial to recurring class</p>
                     <p className="text-xs text-[#002F67]/60 mt-1">
-                      Keep the trial as Week 1 and seed the remaining 9 weekly sessions to complete Term 1.
+                      Pick which week of the term this trial counts as. We'll seed {10 - convertWeek} more weekly session{10 - convertWeek === 1 ? '' : 's'} to complete Term 1.
                     </p>
                   </div>
                   <div className="flex items-end gap-3 flex-wrap">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 block mb-1">Week of Term</label>
+                      <select
+                        value={convertWeek}
+                        onChange={e => setConvertWeek(Number(e.target.value))}
+                        className="rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#002F67]/20 focus:border-[#002F67]/40"
+                      >
+                        {Array.from({ length: 10 }, (_, i) => i + 1).map(w => (
+                          <option key={w} value={w}>Week {w}</option>
+                        ))}
+                      </select>
+                    </div>
                     <div>
                       <label className="text-xs font-medium text-gray-500 block mb-1">Day</label>
                       <select
