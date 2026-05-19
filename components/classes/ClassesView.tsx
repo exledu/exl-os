@@ -107,6 +107,12 @@ export function ClassesView() {
   const [initDate, setInitDate]       = useState('')
   const [initialisingTerm, setInitialisingTerm] = useState(false)
 
+  // Convert one-off → recurring
+  const [convertDay, setConvertDay]     = useState<number>(0)
+  const [convertStart, setConvertStart] = useState('')
+  const [convertEnd, setConvertEnd]     = useState('')
+  const [converting, setConverting]     = useState(false)
+
   async function loadClasses() {
     const [activeRes, archivedRes] = await Promise.all([
       fetch('/api/classes'),
@@ -152,7 +158,18 @@ export function ClassesView() {
         setInitDate(d.recurrenceStart.split('T')[0])
       }
     }
-    if (sessionsRes.ok) setTerms(await sessionsRes.json())
+    if (sessionsRes.ok) {
+      const t = await sessionsRes.json()
+      setTerms(t)
+      // Seed convert-to-recurring defaults from the trial session (if any)
+      const trial = t[0]?.weeks?.[0]
+      if (trial) {
+        const trialDate = new Date(trial.date + 'T00:00:00Z')
+        setConvertDay(trialDate.getUTCDay())
+        setConvertStart(trial.startTime)
+        setConvertEnd(trial.endTime)
+      }
+    }
     setLoadingDetail(false)
   }
 
@@ -210,6 +227,22 @@ export function ClassesView() {
     })
     setInitialisingTerm(false)
     loadDetail(selectedId)
+  }
+
+  async function doConvertToRecurring() {
+    if (!selectedId || !convertStart || !convertEnd) return
+    setConverting(true)
+    const res = await fetch(`/api/classes/${selectedId}/convert-to-recurring`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dayOfWeek: convertDay, startTime: convertStart, endTime: convertEnd }),
+    })
+    setConverting(false)
+    if (!res.ok) {
+      alert(`Failed to convert: ${await res.text()}`)
+      return
+    }
+    await Promise.all([loadClasses(), loadDetail(selectedId)])
   }
 
   const displayed = classes
@@ -529,6 +562,56 @@ export function ClassesView() {
 
               {terms.length === 0 && !detail.isRecurring && (
                 <p className="text-sm text-gray-400 italic">No sessions yet</p>
+              )}
+
+              {/* Convert one-off → recurring */}
+              {!detail.isRecurring && terms.length === 1 && terms[0].weeks.length === 1 && (
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 px-5 py-5 space-y-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[#002F67]">Convert trial to recurring class</p>
+                    <p className="text-xs text-[#002F67]/60 mt-1">
+                      Keep the trial as Week 1 and seed the remaining 9 weekly sessions to complete Term 1.
+                    </p>
+                  </div>
+                  <div className="flex items-end gap-3 flex-wrap">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 block mb-1">Day</label>
+                      <select
+                        value={convertDay}
+                        onChange={e => setConvertDay(Number(e.target.value))}
+                        className="rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#002F67]/20 focus:border-[#002F67]/40"
+                      >
+                        {DAY_NAMES.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 block mb-1">Start</label>
+                      <input
+                        type="time"
+                        value={convertStart}
+                        onChange={e => setConvertStart(e.target.value)}
+                        className="rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#002F67]/20 focus:border-[#002F67]/40"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 block mb-1">End</label>
+                      <input
+                        type="time"
+                        value={convertEnd}
+                        onChange={e => setConvertEnd(e.target.value)}
+                        className="rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#002F67]/20 focus:border-[#002F67]/40"
+                      />
+                    </div>
+                    <button
+                      onClick={doConvertToRecurring}
+                      disabled={converting || !convertStart || !convertEnd}
+                      className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-medium bg-emerald-600 text-white shadow-md hover:shadow-lg hover:bg-emerald-700 disabled:opacity-50 transition-all duration-200"
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                      {converting ? 'Converting…' : 'Convert to Recurring'}
+                    </button>
+                  </div>
+                </div>
               )}
 
               <div className="space-y-6 mt-2">
