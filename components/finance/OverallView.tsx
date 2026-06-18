@@ -91,24 +91,37 @@ export function OverallView() {
 
   const columns: TermColumn[] = useMemo(() => {
     if (!forecasts) return []
-    return years.flatMap(year =>
+    const raw = years.flatMap(year =>
       [1, 2, 3, 4].filter(term => !isBeforeDataStart(year, term)).map(term => {
         const f      = forecasts[`${year}-${term}`]
         const saved  = readSavedExpenses(year, term)
-        const revenue   = f?.revenue ?? 0
-        const tutorCost = f?.tutorCost ?? 0
-        const rent      = saved.rent ?? 0
-        const extras    = (saved.extras ?? []).reduce((s, e) => s + (e.amount || 0), 0)
-        const totalCosts = tutorCost + rent + extras
-        const profit     = revenue - totalCosts
-        const margin     = revenue > 0 ? (profit / revenue) * 100 : 0
         return {
-          year, term, revenue, tutorCost, rent, extras,
-          totalCosts, profit, margin,
-          projected: !!f?.projected,
+          year, term, f, saved,
+          savedRent: saved.rent ?? null,
         }
       })
     )
+    // Carry forward the most recent recorded rent into projected terms that
+    // don't have a per-term entry yet.
+    let lastKnownRent = 0
+    return raw.map(({ year, term, f, saved, savedRent }) => {
+      if (savedRent != null) lastKnownRent = savedRent
+      const revenue   = f?.revenue ?? 0
+      const tutorCost = f?.tutorCost ?? 0
+      const projected = !!f?.projected
+      const rent = savedRent != null
+        ? savedRent
+        : projected ? lastKnownRent : 0
+      const extras    = (saved.extras ?? []).reduce((s, e) => s + (e.amount || 0), 0)
+      const totalCosts = tutorCost + rent + extras
+      const profit     = revenue - totalCosts
+      const margin     = revenue > 0 ? (profit / revenue) * 100 : 0
+      return {
+        year, term, revenue, tutorCost, rent, extras,
+        totalCosts, profit, margin,
+        projected,
+      }
+    })
   }, [forecasts, years])
 
   // Totals row across the full visible window
