@@ -21,27 +21,17 @@ interface SavedExpenses {
   extras?: ExtraExpense[]
 }
 
-interface TermCell {
-  revenue: number
-  tutorCost: number
-  rent: number
-  extras: number
+interface TermColumn {
+  year:       number
+  term:       number
+  revenue:    number
+  tutorCost:  number
+  rent:       number
+  extras:     number
   totalCosts: number
-  profit: number
-  projected: boolean
-}
-
-interface YearTotals {
-  year: number
-  terms: Record<number, TermCell>
-  revenue: number
-  tutorCost: number
-  rent: number
-  extras: number
-  totalCosts: number
-  profit: number
-  margin: number
-  anyProjected: boolean
+  profit:     number
+  margin:     number
+  projected:  boolean
 }
 
 function fmtMoney(n: number) {
@@ -61,11 +51,9 @@ function readSavedExpenses(year: number, term: number): SavedExpenses {
 export function OverallView() {
   const currentYear = new Date().getFullYear()
   const [startYear, setStartYear] = useState(currentYear)
-  const [endYear,   setEndYear]   = useState(currentYear + 2)
+  const [endYear,   setEndYear]   = useState(currentYear + 1)
   const [forecasts, setForecasts] = useState<Record<string, ForecastResp> | null>(null)
   const [loading,   setLoading]   = useState(true)
-  // Bump this when local-storage expense edits should re-run aggregation
-  const [expensesVersion] = useState(0)
 
   const years = useMemo(() => {
     const lo = Math.min(startYear, endYear)
@@ -89,61 +77,50 @@ export function OverallView() {
     })
   }, [years])
 
-  const aggregated: YearTotals[] = useMemo(() => {
+  const columns: TermColumn[] = useMemo(() => {
     if (!forecasts) return []
-    return years.map(year => {
-      const terms: Record<number, TermCell> = {}
-      let rev = 0, tut = 0, rent = 0, ext = 0
-      let anyProjected = false
-      for (const t of [1, 2, 3, 4]) {
-        const f = forecasts[`${year}-${t}`]
-        const saved = readSavedExpenses(year, t)
-        const cellRevenue   = f?.revenue ?? 0
-        const cellTutorCost = f?.tutorCost ?? 0
-        const cellRent      = saved.rent ?? 0
-        const cellExtras    = (saved.extras ?? []).reduce((s, e) => s + (e.amount || 0), 0)
-        const cellTotal     = cellTutorCost + cellRent + cellExtras
-        const cellProfit    = cellRevenue - cellTotal
-        anyProjected = anyProjected || !!f?.projected
-        terms[t] = {
-          revenue:    cellRevenue,
-          tutorCost:  cellTutorCost,
-          rent:       cellRent,
-          extras:     cellExtras,
-          totalCosts: cellTotal,
-          profit:     cellProfit,
-          projected:  !!f?.projected,
+    return years.flatMap(year =>
+      [1, 2, 3, 4].map(term => {
+        const f      = forecasts[`${year}-${term}`]
+        const saved  = readSavedExpenses(year, term)
+        const revenue   = f?.revenue ?? 0
+        const tutorCost = f?.tutorCost ?? 0
+        const rent      = saved.rent ?? 0
+        const extras    = (saved.extras ?? []).reduce((s, e) => s + (e.amount || 0), 0)
+        const totalCosts = tutorCost + rent + extras
+        const profit     = revenue - totalCosts
+        const margin     = revenue > 0 ? (profit / revenue) * 100 : 0
+        return {
+          year, term, revenue, tutorCost, rent, extras,
+          totalCosts, profit, margin,
+          projected: !!f?.projected,
         }
-        rev  += cellRevenue
-        tut  += cellTutorCost
-        rent += cellRent
-        ext  += cellExtras
-      }
-      const total = tut + rent + ext
-      return {
-        year,
-        terms,
-        revenue:    rev,
-        tutorCost:  tut,
-        rent,
-        extras:     ext,
-        totalCosts: total,
-        profit:     rev - total,
-        margin:     rev > 0 ? ((rev - total) / rev) * 100 : 0,
-        anyProjected,
-      }
+      })
+    )
+  }, [forecasts, years])
+
+  // Totals row across the full visible window
+  const totals = useMemo(() => {
+    const z = { revenue: 0, tutorCost: 0, rent: 0, extras: 0, totalCosts: 0, profit: 0 }
+    columns.forEach(c => {
+      z.revenue    += c.revenue
+      z.tutorCost  += c.tutorCost
+      z.rent       += c.rent
+      z.extras     += c.extras
+      z.totalCosts += c.totalCosts
+      z.profit     += c.profit
     })
-  }, [forecasts, years, expensesVersion])
+    const margin = z.revenue > 0 ? (z.profit / z.revenue) * 100 : 0
+    return { ...z, margin }
+  }, [columns])
 
   return (
     <div className="space-y-5">
       <div className="flex items-end justify-between gap-3 flex-wrap">
-        <div>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Year-by-year P&amp;L. Past terms use real invoices + recorded sessions; future terms project from current
-            enrolments using HSC-calendar rollover (drop Yr 12 at T4, juniors +1 at T1).
-          </p>
-        </div>
+        <p className="text-xs text-gray-500 mt-0.5 max-w-2xl">
+          Income statement, term-by-term. Past terms use real invoices + recorded sessions; future terms project from
+          current enrolments using the HSC-calendar rollover (drop Yr 12 at T4, juniors +1 at T1).
+        </p>
         <div className="flex items-end gap-2">
           <div>
             <label className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 block mb-1">From</label>
@@ -181,37 +158,41 @@ export function OverallView() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500"></th>
-                {aggregated.map(y => (
-                  <th key={y.year} className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {y.year}
-                      {y.anyProjected && (
+                <th className="sticky left-0 z-10 bg-gray-50 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500"></th>
+                {columns.map(c => (
+                  <th key={`${c.year}-${c.term}`}
+                      className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500 whitespace-nowrap">
+                    <div className="flex items-center justify-end gap-1">
+                      <span>{c.year}T{c.term}</span>
+                      {c.projected && (
                         <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-violet-700">P</span>
                       )}
                     </div>
                   </th>
                 ))}
+                <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-[#002F67] whitespace-nowrap">
+                  Total
+                </th>
               </tr>
             </thead>
             <tbody className="text-gray-700">
-              <Row label="Revenue"        value={y => y.revenue}    bold tone="emerald" rows={aggregated} />
-              <SectionHeader label="Less: Cost of services" cols={aggregated.length + 1} />
-              <Row label="Tutor costs"    value={y => -y.tutorCost} indent rows={aggregated} />
-              <Row label="Rent"           value={y => -y.rent}      indent rows={aggregated} />
-              <Row label="Other expenses" value={y => -y.extras}    indent rows={aggregated} />
-              <Row label="Total costs"    value={y => -y.totalCosts} bold rows={aggregated} />
-              <Row label="Net profit"     value={y => y.profit}     bold tone={pick => pick > 0 ? 'emerald' : 'rose'} rows={aggregated} />
-              <Row label="Margin"         value={y => y.margin}     suffix="%" rows={aggregated} />
+              <Row label="Revenue"        pick={c => c.revenue}    bold tone="emerald" cols={columns} totalValue={totals.revenue} />
+              <SectionHeader label="Less: Cost of services" cols={columns.length + 2} />
+              <Row label="Tutor costs"    pick={c => -c.tutorCost} indent cols={columns} totalValue={-totals.tutorCost} />
+              <Row label="Rent"           pick={c => -c.rent}      indent cols={columns} totalValue={-totals.rent} />
+              <Row label="Other expenses" pick={c => -c.extras}    indent cols={columns} totalValue={-totals.extras} />
+              <Row label="Total costs"    pick={c => -c.totalCosts} bold cols={columns} totalValue={-totals.totalCosts} />
+              <Row label="Net profit"     pick={c => c.profit}     bold tone={v => v > 0 ? 'emerald' : 'rose'} cols={columns} totalValue={totals.profit} />
+              <Row label="Margin"         pick={c => c.margin}     suffix="%" cols={columns} totalValue={totals.margin} />
             </tbody>
           </table>
         </div>
       )}
 
-      {!loading && aggregated.length > 0 && (
+      {!loading && columns.length > 0 && (
         <p className="text-[11px] text-gray-500">
           <span className="inline-block rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-violet-700 mr-1">P</span>
-          = year includes at least one projected term. Rent and other expenses are pulled from the per-term entries you set in the Term view.
+          = projected term. Rent and other expenses are pulled from the per-term entries you set in the Term view.
         </p>
       )}
     </div>
@@ -229,34 +210,44 @@ function SectionHeader({ label, cols }: { label: string; cols: number }) {
 }
 
 function Row({
-  label, value, rows, bold, indent, suffix, tone,
+  label, pick, cols, totalValue, bold, indent, suffix, tone,
 }: {
-  label:   string
-  value:   (y: YearTotals) => number
-  rows:    YearTotals[]
-  bold?:   boolean
-  indent?: boolean
-  suffix?: string
-  tone?:   'emerald' | 'rose' | ((v: number) => 'emerald' | 'rose')
+  label:      string
+  pick:       (c: TermColumn) => number
+  cols:       TermColumn[]
+  totalValue: number
+  bold?:      boolean
+  indent?:    boolean
+  suffix?:    string
+  tone?:      'emerald' | 'rose' | ((v: number) => 'emerald' | 'rose')
 }) {
+  const fmt = (v: number) => suffix === '%' ? `${v.toFixed(1)}%` : fmtMoney(v)
+  const totalTone = typeof tone === 'function' ? tone(totalValue) : tone
+  const totalToneCls =
+    totalTone === 'emerald' ? 'text-emerald-700'
+    : totalTone === 'rose'  ? 'text-rose-700'
+    : ''
   return (
     <tr className="border-t border-gray-100">
-      <td className={`px-4 py-2 ${bold ? 'font-semibold text-[#002F67]' : ''} ${indent ? 'pl-8 text-gray-600' : ''}`}>{label}</td>
-      {rows.map(y => {
-        const v = value(y)
-        const computedTone = typeof tone === 'function' ? tone(v) : tone
+      <td className={`sticky left-0 z-10 bg-white px-4 py-2 ${bold ? 'font-semibold text-[#002F67]' : ''} ${indent ? 'pl-8 text-gray-600' : ''}`}>
+        {label}
+      </td>
+      {cols.map(c => {
+        const v = pick(c)
+        const cellTone = typeof tone === 'function' ? tone(v) : tone
         const toneCls =
-          computedTone === 'emerald' ? 'text-emerald-700'
-          : computedTone === 'rose'  ? 'text-rose-700'
+          cellTone === 'emerald' ? 'text-emerald-700'
+          : cellTone === 'rose'  ? 'text-rose-700'
           : ''
         return (
-          <td key={y.year} className={`px-4 py-2 text-right tabular-nums ${bold ? 'font-semibold' : ''} ${toneCls}`}>
-            {suffix === '%'
-              ? `${v.toFixed(1)}%`
-              : fmtMoney(v)}
+          <td key={`${c.year}-${c.term}`} className={`px-3 py-2 text-right tabular-nums whitespace-nowrap ${bold ? 'font-semibold' : ''} ${toneCls}`}>
+            {fmt(v)}
           </td>
         )
       })}
+      <td className={`px-3 py-2 text-right tabular-nums whitespace-nowrap font-semibold border-l border-gray-200 ${totalToneCls}`}>
+        {fmt(totalValue)}
+      </td>
     </tr>
   )
 }
