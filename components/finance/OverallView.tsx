@@ -56,26 +56,40 @@ function readSavedExpenses(year: number, term: number): SavedExpenses {
   }
 }
 
+function compareTerm(a: { year: number; term: number }, b: { year: number; term: number }) {
+  return (a.year * 4 + a.term) - (b.year * 4 + b.term)
+}
+
+function termsBetween(from: { year: number; term: number }, to: { year: number; term: number }) {
+  const lo = compareTerm(from, to) <= 0 ? from : to
+  const hi = compareTerm(from, to) <= 0 ? to   : from
+  const out: { year: number; term: number }[] = []
+  let cur = { ...lo }
+  while (compareTerm(cur, hi) <= 0) {
+    out.push({ ...cur })
+    cur = cur.term < 4 ? { year: cur.year, term: cur.term + 1 } : { year: cur.year + 1, term: 1 }
+  }
+  return out
+}
+
 export function OverallView() {
   const currentYear = new Date().getFullYear()
-  const [startYear, setStartYear] = useState(currentYear)
+  const [startYear, setStartYear] = useState(DATA_START_YEAR)
+  const [startTerm, setStartTerm] = useState(DATA_START_TERM)
   const [endYear,   setEndYear]   = useState(currentYear + 1)
+  const [endTerm,   setEndTerm]   = useState(4)
   const [forecasts, setForecasts] = useState<Record<string, ForecastResp> | null>(null)
   const [loading,   setLoading]   = useState(true)
 
-  const years = useMemo(() => {
-    const lo = Math.min(startYear, endYear)
-    const hi = Math.max(startYear, endYear)
-    return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i)
-  }, [startYear, endYear])
+  const visibleTerms = useMemo(
+    () => termsBetween({ year: startYear, term: startTerm }, { year: endYear, term: endTerm })
+              .filter(p => !isBeforeDataStart(p.year, p.term)),
+    [startYear, startTerm, endYear, endTerm],
+  )
 
   useEffect(() => {
     setLoading(true)
-    const keys = years.flatMap(y =>
-      [1, 2, 3, 4]
-        .filter(t => !isBeforeDataStart(y, t))
-        .map(t => ({ y, t, k: `${y}-${t}` }))
-    )
+    const keys = visibleTerms.map(p => ({ y: p.year, t: p.term, k: `${p.year}-${p.term}` }))
     Promise.all(keys.map(({ y, t, k }) =>
       fetch(`/api/finance/forecast?year=${y}&term=${t}`)
         .then(r => r.ok ? r.json() : null)
@@ -87,20 +101,18 @@ export function OverallView() {
       setForecasts(map)
       setLoading(false)
     })
-  }, [years])
+  }, [visibleTerms])
 
   const columns: TermColumn[] = useMemo(() => {
     if (!forecasts) return []
-    const raw = years.flatMap(year =>
-      [1, 2, 3, 4].filter(term => !isBeforeDataStart(year, term)).map(term => {
-        const f      = forecasts[`${year}-${term}`]
-        const saved  = readSavedExpenses(year, term)
-        return {
-          year, term, f, saved,
-          savedRent: saved.rent ?? null,
-        }
-      })
-    )
+    const raw = visibleTerms.map(({ year, term }) => {
+      const f     = forecasts[`${year}-${term}`]
+      const saved = readSavedExpenses(year, term)
+      return {
+        year, term, f, saved,
+        savedRent: saved.rent ?? null,
+      }
+    })
     // Carry forward the most recent recorded rent into projected terms that
     // don't have a per-term entry yet.
     let lastKnownRent = 0
@@ -122,7 +134,7 @@ export function OverallView() {
         projected,
       }
     })
-  }, [forecasts, years])
+  }, [forecasts, visibleTerms])
 
   // Totals row across the full visible window
   const totals = useMemo(() => {
@@ -146,30 +158,52 @@ export function OverallView() {
           Income statement, term-by-term. Past terms use real invoices + recorded sessions; future terms project from
           current enrolments using the HSC-calendar rollover (drop Yr 12 at T4, juniors +1 at T1).
         </p>
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-2 flex-wrap">
           <div>
             <label className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 block mb-1">From</label>
-            <select
-              value={startYear}
-              onChange={e => setStartYear(Number(e.target.value))}
-              className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 focus:border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-200"
-            >
-              {Array.from({ length: 7 }, (_, i) => currentYear - 2 + i).map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
+            <div className="flex gap-1">
+              <select
+                value={startYear}
+                onChange={e => setStartYear(Number(e.target.value))}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 focus:border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-200"
+              >
+                {Array.from({ length: 7 }, (_, i) => currentYear - 2 + i).map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+              <select
+                value={startTerm}
+                onChange={e => setStartTerm(Number(e.target.value))}
+                className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm font-medium text-gray-700 focus:border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-200"
+              >
+                {[1, 2, 3, 4].map(t => (
+                  <option key={t} value={t}>T{t}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div>
             <label className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 block mb-1">To</label>
-            <select
-              value={endYear}
-              onChange={e => setEndYear(Number(e.target.value))}
-              className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 focus:border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-200"
-            >
-              {Array.from({ length: 7 }, (_, i) => currentYear - 2 + i).map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
+            <div className="flex gap-1">
+              <select
+                value={endYear}
+                onChange={e => setEndYear(Number(e.target.value))}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 focus:border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-200"
+              >
+                {Array.from({ length: 7 }, (_, i) => currentYear - 2 + i).map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+              <select
+                value={endTerm}
+                onChange={e => setEndTerm(Number(e.target.value))}
+                className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm font-medium text-gray-700 focus:border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-200"
+              >
+                {[1, 2, 3, 4].map(t => (
+                  <option key={t} value={t}>T{t}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
       </div>
