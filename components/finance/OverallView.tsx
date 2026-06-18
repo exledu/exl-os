@@ -7,6 +7,7 @@ interface ForecastResp {
   term: number
   tutorCost: number
   adminCost: number
+  superCost: number
   revenue: number
   projected?: boolean
 }
@@ -29,6 +30,7 @@ interface TermColumn {
   tutorCost:  number
   rent:       number
   adminCost:  number
+  superCost:  number
   extras:     number
   totalCosts: number
   profit:     number
@@ -123,16 +125,17 @@ export function OverallView() {
       const revenue   = f?.revenue ?? 0
       const tutorCost = f?.tutorCost ?? 0
       const adminCost = f?.adminCost ?? 0
+      const superCost = f?.superCost ?? 0
       const projected = !!f?.projected
       const rent = savedRent != null
         ? savedRent
         : projected ? lastKnownRent : 0
       const extras    = (saved.extras ?? []).reduce((s, e) => s + (e.amount || 0), 0)
-      const totalCosts = tutorCost + rent + extras + adminCost
+      const totalCosts = tutorCost + rent + extras + adminCost + superCost
       const profit     = revenue - totalCosts
       const margin     = revenue > 0 ? (profit / revenue) * 100 : 0
       return {
-        year, term, revenue, tutorCost, adminCost, rent, extras,
+        year, term, revenue, tutorCost, adminCost, superCost, rent, extras,
         totalCosts, profit, margin,
         projected,
       }
@@ -141,12 +144,13 @@ export function OverallView() {
 
   // Totals row across the full visible window
   const totals = useMemo(() => {
-    const z = { revenue: 0, tutorCost: 0, rent: 0, adminCost: 0, extras: 0, totalCosts: 0, profit: 0 }
+    const z = { revenue: 0, tutorCost: 0, rent: 0, adminCost: 0, superCost: 0, extras: 0, totalCosts: 0, profit: 0 }
     columns.forEach(c => {
       z.revenue    += c.revenue
       z.tutorCost  += c.tutorCost
       z.rent       += c.rent
       z.adminCost  += c.adminCost
+      z.superCost  += c.superCost
       z.extras     += c.extras
       z.totalCosts += c.totalCosts
       z.profit     += c.profit
@@ -243,6 +247,7 @@ export function OverallView() {
               <SectionHeader label="Less: Cost of services" cols={columns.length + 2} />
               <Row label="Tutor costs"    pick={c => -c.tutorCost} indent cols={columns} totalValue={-totals.tutorCost} />
               <Row label="Admin"          pick={c => -c.adminCost} indent cols={columns} totalValue={-totals.adminCost} />
+              <Row label="Super (12%)"    pick={c => -c.superCost} indent cols={columns} totalValue={-totals.superCost} />
               <Row label="Rent"           pick={c => -c.rent}      indent cols={columns} totalValue={-totals.rent} />
               <Row label="Other expenses" pick={c => -c.extras}    indent cols={columns} totalValue={-totals.extras} />
               <Row label="Total costs"    pick={c => -c.totalCosts} bold cols={columns} totalValue={-totals.totalCosts} />

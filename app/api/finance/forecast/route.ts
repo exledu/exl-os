@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/db'
 import { cookies } from 'next/headers'
 import { rateFor, parseHours } from '@/lib/payroll-calc'
-import { TERMLY_PRICE, adminCostFor } from '@/lib/pricing'
+import { TERMLY_PRICE, adminCostFor, superFor } from '@/lib/pricing'
 import {
   projectStudents, currentTermPos, compareTerm,
   type ProjectedStudent, type TermPos,
@@ -76,13 +76,15 @@ async function actuals(target: TermPos) {
   })
   const revenue = invoices.reduce((sum, i) => sum + i.total, 0)
 
+  const adminCost = adminCostFor(target.year, target.term)
   return {
     projected: false,
     year: target.year,
     term: target.term,
     tutorHours,
     tutorCost,
-    adminCost: adminCostFor(target.year, target.term),
+    adminCost,
+    superCost: superFor(tutorCost + adminCost),
     sessionCount,
     revenue,
     invoiceCount: invoices.length,
@@ -162,13 +164,15 @@ async function projection(target: TermPos, baseline: TermPos) {
     activeClassCount += 1
   }
 
+  const adminCost = adminCostFor(target.year, target.term)
   return {
     projected: true,
     year: target.year,
     term: target.term,
     tutorHours,
     tutorCost,
-    adminCost: adminCostFor(target.year, target.term),
+    adminCost,
+    superCost: superFor(tutorCost + adminCost),
     sessionCount: activeClassCount * SESSIONS_PER_TERM,
     revenue,
     invoiceCount:  0,
