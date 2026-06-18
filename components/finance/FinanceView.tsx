@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { DollarSign, Users, Building2, Wallet, TrendingUp, Plus, X } from 'lucide-react'
+import { DollarSign, Users, Building2, Wallet, TrendingUp, Plus, X, ClipboardList } from 'lucide-react'
 import { OverallView } from './OverallView'
 
 type Mode = 'termly' | 'overall'
@@ -11,6 +11,7 @@ interface ForecastData {
   term: number
   tutorHours: number
   tutorCost: number
+  adminCost: number
   sessionCount: number
   revenue: number
   invoiceCount: number
@@ -125,9 +126,10 @@ function TermlyView() {
 
   const tutorCost = data?.tutorCost ?? 0
   const tutorHours = data?.tutorHours ?? 0
+  const adminCost  = data?.adminCost ?? 0
   const avgRate = tutorHours > 0 ? tutorCost / tutorHours : 0
   const extrasTotal = useMemo(() => extras.reduce((s, e) => s + (e.amount || 0), 0), [extras])
-  const totalCosts = tutorCost + rent + extrasTotal
+  const totalCosts = tutorCost + rent + extrasTotal + adminCost
   const revenue = data?.revenue ?? 0
   const profit = revenue - totalCosts
   const margin = revenue > 0 ? (profit / revenue) * 100 : 0
@@ -192,7 +194,7 @@ function TermlyView() {
       ) : (
         <>
           {/* Top row — KPI cards */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <KpiCard
               label="Revenue"
               value={fmtMoney(revenue)}
@@ -215,6 +217,13 @@ function TermlyView() {
               sub="Term cost"
               icon={Building2}
               tone="blue"
+            />
+            <KpiCard
+              label="Admin"
+              value={fmtMoney(adminCost)}
+              sub={adminCost > 0 ? '10 wks · 6 hrs/wk · $26/hr' : 'not applicable'}
+              icon={ClipboardList}
+              tone="slate"
             />
             <KpiCard
               label="Other Expenses"
@@ -333,7 +342,7 @@ interface KpiCardProps {
   value: string
   sub: string
   icon: React.ComponentType<{ className?: string }>
-  tone: 'emerald' | 'amber' | 'blue' | 'violet'
+  tone: 'emerald' | 'amber' | 'blue' | 'violet' | 'slate'
 }
 
 const TONE_STYLES: Record<KpiCardProps['tone'], string> = {
@@ -341,6 +350,7 @@ const TONE_STYLES: Record<KpiCardProps['tone'], string> = {
   amber:   'bg-amber-500/10 text-amber-700',
   blue:    'bg-blue-500/10 text-blue-700',
   violet:  'bg-violet-500/10 text-violet-700',
+  slate:   'bg-slate-500/10 text-slate-700',
 }
 
 function KpiCard({ label, value, sub, icon: Icon, tone }: KpiCardProps) {
