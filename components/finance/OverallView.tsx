@@ -34,6 +34,14 @@ interface TermColumn {
   projected:  boolean
 }
 
+// We only started using the OS from T2 2026, so T1 2026 has no real data.
+// Skip anything strictly before this point in the Overall view.
+const DATA_START_YEAR = 2026
+const DATA_START_TERM = 2
+function isBeforeDataStart(year: number, term: number) {
+  return year < DATA_START_YEAR || (year === DATA_START_YEAR && term < DATA_START_TERM)
+}
+
 function fmtMoney(n: number) {
   return n.toLocaleString('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 })
 }
@@ -63,7 +71,11 @@ export function OverallView() {
 
   useEffect(() => {
     setLoading(true)
-    const keys = years.flatMap(y => [1, 2, 3, 4].map(t => ({ y, t, k: `${y}-${t}` })))
+    const keys = years.flatMap(y =>
+      [1, 2, 3, 4]
+        .filter(t => !isBeforeDataStart(y, t))
+        .map(t => ({ y, t, k: `${y}-${t}` }))
+    )
     Promise.all(keys.map(({ y, t, k }) =>
       fetch(`/api/finance/forecast?year=${y}&term=${t}`)
         .then(r => r.ok ? r.json() : null)
@@ -80,7 +92,7 @@ export function OverallView() {
   const columns: TermColumn[] = useMemo(() => {
     if (!forecasts) return []
     return years.flatMap(year =>
-      [1, 2, 3, 4].map(term => {
+      [1, 2, 3, 4].filter(term => !isBeforeDataStart(year, term)).map(term => {
         const f      = forecasts[`${year}-${term}`]
         const saved  = readSavedExpenses(year, term)
         const revenue   = f?.revenue ?? 0
