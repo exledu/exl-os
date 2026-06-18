@@ -13,6 +13,8 @@ interface ForecastData {
   invoiceCount: number
   rangeStart: string | null
   rangeEnd:   string | null
+  projected?: boolean
+  projectedStudentCount?: number
 }
 
 function fmtRange(start: string | null, end: string | null) {
@@ -114,9 +116,21 @@ export function FinanceView() {
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-[#002F67]">Financial Forecast</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-[#002F67]">Financial Forecast</h1>
+            {data?.projected && (
+              <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
+                Projected
+              </span>
+            )}
+          </div>
           {data && fmtRange(data.rangeStart, data.rangeEnd) && (
             <p className="text-xs text-gray-500 mt-0.5">Sessions: {fmtRange(data.rangeStart, data.rangeEnd)}</p>
+          )}
+          {data?.projected && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              Forward projection of {data.projectedStudentCount ?? 0} students rolled to T{data.term} {data.year}
+            </p>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -125,7 +139,7 @@ export function FinanceView() {
             onChange={e => setYear(Number(e.target.value))}
             className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 focus:border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-200"
           >
-            {[year - 1, year, year + 1].map(y => (
+            {[year - 1, year, year + 1, year + 2, year + 3].map(y => (
               <option key={y} value={y}>{y}</option>
             ))}
           </select>
@@ -152,7 +166,9 @@ export function FinanceView() {
             <KpiCard
               label="Revenue"
               value={fmtMoney(revenue)}
-              sub={`${data?.invoiceCount ?? 0} invoice${data?.invoiceCount === 1 ? '' : 's'}`}
+              sub={data?.projected
+                ? `projected · ${data.projectedStudentCount ?? 0} students`
+                : `${data?.invoiceCount ?? 0} invoice${data?.invoiceCount === 1 ? '' : 's'}`}
               icon={DollarSign}
               tone="emerald"
             />
