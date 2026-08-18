@@ -25,25 +25,6 @@ interface LeadRow {
   engagementRecencyMs: number
 }
 
-type Temperature = 'warm' | 'cooling' | 'cold' | 'stale' | 'closed'
-
-function temperatureFor(row: LeadRow): Temperature {
-  if (row.stage === 'CLOSED_LOST' || row.stage === 'ENROLLED') return 'closed'
-  const days = row.engagementRecencyMs / 86_400_000
-  if (days <= 3)  return 'warm'
-  if (days <= 7)  return 'cooling'
-  if (days <= 14) return 'cold'
-  return 'stale'
-}
-
-const TEMP_STYLES: Record<Temperature, { pill: string; label: string }> = {
-  warm:    { pill: 'bg-emerald-100 text-emerald-800 border-emerald-200', label: 'Warm' },
-  cooling: { pill: 'bg-amber-100 text-amber-800 border-amber-200',        label: 'Cooling' },
-  cold:    { pill: 'bg-rose-100 text-rose-800 border-rose-200',           label: 'Cold' },
-  stale:   { pill: 'bg-gray-200 text-gray-700 border-gray-300',           label: 'Stale' },
-  closed:  { pill: 'bg-slate-100 text-slate-500 border-slate-200',        label: 'Closed' },
-}
-
 const STAGE_LABEL: Record<string, string> = {
   NEW:            'New',
   CONTACTED:      'Contacted',
@@ -80,7 +61,6 @@ export function LeadsView() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError]     = useState<string | null>(null)
-  const [temp, setTemp]       = useState<'all' | Temperature>('all')
 
   async function load() {
     setLoading(true)
@@ -114,30 +94,30 @@ export function LeadsView() {
 
   const summary = useMemo(() => {
     if (!leads) return null
-    const counts: Record<Temperature, number> = { warm: 0, cooling: 0, cold: 0, stale: 0, closed: 0 }
-    let firstRespSum = 0, firstRespN = 0, firstRespWithin4h = 0
+    let firstRespSum = 0, firstRespN = 0, firstRespWithin4h = 0, noReply = 0, closed = 0
     for (const l of leads) {
-      counts[temperatureFor(l)]++
+      if (l.stage === 'CLOSED_LOST' || l.stage === 'ENROLLED') closed++
       if (l.firstResponseMs != null) {
         firstRespSum += l.firstResponseMs
         firstRespN++
         if (l.firstResponseMs <= 4 * 3600_000) firstRespWithin4h++
+      } else if (l.stage !== 'CLOSED_LOST') {
+        noReply++
       }
     }
     return {
-      counts,
+      total: leads.length,
+      open: leads.length - closed,
+      noReply,
       firstResponseAvg: firstRespN ? firstRespSum / firstRespN : null,
       first4h: firstRespN ? (firstRespWithin4h / firstRespN) * 100 : null,
-      firstRespN,
-      total: leads.length,
     }
   }, [leads])
 
   const visible = useMemo(() => {
     if (!leads) return []
-    const filtered = temp === 'all' ? leads : leads.filter(l => temperatureFor(l) === temp)
-    return [...filtered].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-  }, [leads, temp])
+    return [...leads].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  }, [leads])
 
   return (
     <div className="space-y-5">
@@ -165,16 +145,18 @@ export function LeadsView() {
       )}
 
       {summary && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <KpiTile label="Total"    value={String(summary.total)}                     onClick={() => setTemp('all')}     active={temp === 'all'} />
-          <KpiTile label="Warm"     value={String(summary.counts.warm)}    tone="emerald" onClick={() => setTemp('warm')}    active={temp === 'warm'} />
-          <KpiTile label="Cooling"  value={String(summary.counts.cooling)} tone="amber"   onClick={() => setTemp('cooling')} active={temp === 'cooling'} />
-          <KpiTile label="Cold"     value={String(summary.counts.cold)}    tone="rose"    onClick={() => setTemp('cold')}    active={temp === 'cold'} />
-          <KpiTile label="Stale"    value={String(summary.counts.stale)}   tone="slate"   onClick={() => setTemp('stale')}   active={temp === 'stale'} />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <KpiTile label="Total leads" value={String(summary.total)} />
+          <KpiTile label="Open" value={String(summary.open)} />
           <KpiTile
             label="Avg 1st reply"
             value={fmtMs(summary.firstResponseAvg)}
             sub={summary.first4h != null ? `${summary.first4h.toFixed(0)}% ≤4hr` : undefined}
+          />
+          <KpiTile
+            label="No reply sent"
+            value={String(summary.noReply)}
+            tone={summary.noReply > 0 ? 'rose' : undefined}
           />
         </div>
       )}
@@ -190,7 +172,6 @@ export function LeadsView() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                <th className="px-4 py-2.5">Temp</th>
                 <th className="px-4 py-2.5">Name</th>
                 <th className="px-4 py-2.5">Form</th>
                 <th className="px-4 py-2.5">Received</th>
@@ -204,22 +185,10 @@ export function LeadsView() {
             </thead>
             <tbody className="text-gray-700">
               {visible.map(l => {
-                const t = temperatureFor(l)
-                const style = TEMP_STYLES[t]
                 const displayName = l.studentName ?? l.parentName ?? l.email
-                // "Their reply" heuristic: time between latest outbound and next inbound
-                // — approximated as engagement-recency − contact-recency when there was
-                // a more recent outbound. Kept simple until we track pairs explicitly.
-                const theirReplyMs = l.inboundCount > 1
-                  ? null // we don't have per-turn data yet
-                  : null
+                const theirReplyMs = null  // per-turn timing not tracked yet
                 return (
                   <tr key={l.id} className="border-t border-gray-100 hover:bg-blue-50/40">
-                    <td className="px-4 py-2">
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${style.pill}`}>
-                        {style.label}
-                      </span>
-                    </td>
                     <td className="px-4 py-2">
                       <Link href={`/leads/${l.id}`} className="text-[#002F67] font-medium hover:underline">
                         {displayName}
