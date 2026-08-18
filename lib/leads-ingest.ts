@@ -142,10 +142,16 @@ export function parseLeadFromBody(text: string, from: string | undefined): Parse
   const studentFull = extractField(text, 'STUDENT FULL NAME')
   const parentName  = extractField(text, 'PARENT NAME') ?? extractField(text, 'PARENT FULL NAME')
 
-  const primaryEmailField =
-    extractField(text, 'STUDENT EMAIL') ??
-    extractField(text, 'EMAIL ADDRESS') ??
-    extractField(text, 'PARENT EMAIL')
+  // Only accept the labeled email if it actually looks like an email — the
+  // regex can otherwise capture the next section's label when the value is
+  // blank (e.g. "EMAIL ADDRESS\nPHONE NUMBER").
+  const looksLikeEmail = (s: string | undefined): s is string =>
+    !!s && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim())
+  const primaryEmailField = [
+    extractField(text, 'STUDENT EMAIL'),
+    extractField(text, 'EMAIL ADDRESS'),
+    extractField(text, 'PARENT EMAIL'),
+  ].find(looksLikeEmail)
 
   const allEmails = Array.from(new Set((text.match(EMAIL_RE) ?? [])
     .map(e => e.toLowerCase())
@@ -153,7 +159,7 @@ export function parseLeadFromBody(text: string, from: string | undefined): Parse
   ))
 
   const email = (primaryEmailField ?? allEmails[0])?.toLowerCase()
-  if (!email) return null
+  if (!email || !looksLikeEmail(email)) return null
 
   const phoneField = extractField(text, 'PHONE NUMBER') ?? extractField(text, 'MOBILE')
   const phone      = phoneField ?? PHONE_RE.exec(text)?.[0]?.trim()
