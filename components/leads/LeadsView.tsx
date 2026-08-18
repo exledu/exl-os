@@ -21,6 +21,8 @@ interface LeadRow {
   outboundCount:       number
   inboundCount:        number
   firstResponseMs:     number | null
+  theirReplyMs:        number | null
+  waitingForReplyMs:   number | null
   contactRecencyMs:    number
   engagementRecencyMs: number
 }
@@ -262,7 +264,15 @@ function LeadsTable({ title, subtitle, rows, onStageChange }: {
                     <td className={`px-4 py-2 text-right tabular-nums ${l.firstResponseMs == null ? 'text-rose-700 font-medium' : ''}`}>
                       {fmtBusinessHoursRough(l.firstResponseMs)}
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-gray-400">—</td>
+                    <td className="px-4 py-2 text-right tabular-nums">
+                      {l.theirReplyMs != null ? (
+                        <span>{fmtMs(l.theirReplyMs)}</span>
+                      ) : l.waitingForReplyMs != null ? (
+                        <span className="text-gray-400 italic">waiting {fmtMs(l.waitingForReplyMs)}</span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-2 text-right tabular-nums">{fmtMs(l.engagementRecencyMs)}</td>
                     <td className="px-4 py-2 text-right tabular-nums text-gray-500">{fmtMs(l.contactRecencyMs)}</td>
                     <td className="px-4 py-2 text-right tabular-nums text-gray-500">
