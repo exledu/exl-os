@@ -136,7 +136,7 @@ export function LeadsView() {
   const visible = useMemo(() => {
     if (!leads) return []
     const filtered = temp === 'all' ? leads : leads.filter(l => temperatureFor(l) === temp)
-    return [...filtered].sort((a, b) => b.engagementRecencyMs - a.engagementRecencyMs)
+    return [...filtered].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }, [leads, temp])
 
   return (
