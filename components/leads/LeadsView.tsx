@@ -126,10 +126,21 @@ export function LeadsView() {
     }
   }, [leads])
 
-  const visible = useMemo(() => {
-    if (!leads) return []
-    return [...leads].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  const OPEN_STAGES   = new Set(['NEW', 'CONTACTED', 'TRIAL_BOOKED', 'TRIAL_ATTENDED'])
+  const CLOSED_STAGES = new Set(['ENROLLED', 'CLOSED_LOST', 'WAITLIST'])
+
+  const { openLeads, closedLeads } = useMemo(() => {
+    const sorted = leads
+      ? [...leads].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      : []
+    return {
+      openLeads:   sorted.filter(l => OPEN_STAGES.has(l.stage)),
+      closedLeads: sorted.filter(l => CLOSED_STAGES.has(l.stage)),
+    }
   }, [leads])
+
+  const onStageChange = (id: number, next: string) =>
+    setLeads(prev => prev?.map(x => x.id === id ? { ...x, stage: next } : x) ?? prev)
 
   return (
     <div className="space-y-5">
@@ -180,6 +191,42 @@ export function LeadsView() {
           No leads ingested yet. Click <strong>Refresh from Gmail</strong> to import recent contact-form submissions.
         </div>
       ) : (
+        <>
+          <LeadsTable
+            title="Open"
+            subtitle="New, Contacted, Trial booked, Trial sat"
+            rows={openLeads}
+            onStageChange={onStageChange}
+          />
+          <LeadsTable
+            title="Closed"
+            subtitle="Enrolled, Waitlist, Closed lost"
+            rows={closedLeads}
+            onStageChange={onStageChange}
+          />
+        </>
+      )}
+    </div>
+  )
+}
+
+function LeadsTable({ title, subtitle, rows, onStageChange }: {
+  title:    string
+  subtitle: string
+  rows:     LeadRow[]
+  onStageChange: (id: number, next: string) => void
+}) {
+  return (
+    <section className="space-y-2">
+      <div className="flex items-baseline gap-2">
+        <h2 className="text-lg font-semibold text-[#002F67]">{title}</h2>
+        <span className="text-xs text-gray-500">{rows.length} · {subtitle}</span>
+      </div>
+      {rows.length === 0 ? (
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-400 italic">
+          Nothing here.
+        </div>
+      ) : (
         <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
           <table className="w-full text-sm">
             <thead>
@@ -196,9 +243,8 @@ export function LeadsView() {
               </tr>
             </thead>
             <tbody className="text-gray-700">
-              {visible.map(l => {
+              {rows.map(l => {
                 const displayName = l.studentName ?? l.parentName ?? l.email
-                const theirReplyMs = null  // per-turn timing not tracked yet
                 return (
                   <tr key={l.id} className="border-t border-gray-100 hover:bg-blue-50/40">
                     <td className="px-4 py-2">
@@ -211,18 +257,12 @@ export function LeadsView() {
                     <td className="px-4 py-2 text-xs text-gray-500 capitalize">{l.formType}</td>
                     <td className="px-4 py-2 text-xs text-gray-500 whitespace-nowrap">{fmtDate(l.createdAt)}</td>
                     <td className="px-4 py-2 text-xs">
-                      <StageCell
-                        leadId={l.id}
-                        stage={l.stage}
-                        onChange={next => setLeads(prev => prev?.map(x => x.id === l.id ? { ...x, stage: next } : x) ?? prev)}
-                      />
+                      <StageCell leadId={l.id} stage={l.stage} onChange={next => onStageChange(l.id, next)} />
                     </td>
                     <td className={`px-4 py-2 text-right tabular-nums ${l.firstResponseMs == null ? 'text-rose-700 font-medium' : ''}`}>
                       {fmtBusinessHoursRough(l.firstResponseMs)}
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-gray-400">
-                      {theirReplyMs != null ? fmtMs(theirReplyMs) : '—'}
-                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums text-gray-400">—</td>
                     <td className="px-4 py-2 text-right tabular-nums">{fmtMs(l.engagementRecencyMs)}</td>
                     <td className="px-4 py-2 text-right tabular-nums text-gray-500">{fmtMs(l.contactRecencyMs)}</td>
                     <td className="px-4 py-2 text-right tabular-nums text-gray-500">
@@ -235,7 +275,7 @@ export function LeadsView() {
           </table>
         </div>
       )}
-    </div>
+    </section>
   )
 }
 
