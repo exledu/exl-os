@@ -36,6 +36,7 @@ model Staff {
   classes     Class[]
   sessions    ClassSession[]
   actions     StaffAction[]
+  ownedLeads  Lead[]
 
   @@map("Tutor")
 }
@@ -245,6 +246,72 @@ enum InvoiceStatus {
   SENT
   PAID
   VOID
+}
+
+// ─── Lead Decay Tracking ────────────────────────────────────────────────────
+// Separate pipeline for website contact-form / free-trial submissions.
+// Ingested from admin@ Gmail (Sent folder, subject "Contact Us"). Fully
+// independent from the Issue/IssueNote system.
+
+enum LeadStage {
+  NEW
+  CONTACTED
+  TRIAL_BOOKED
+  TRIAL_ATTENDED
+  ENROLLED
+  CLOSED_LOST
+  WAITLIST
+}
+
+model Lead {
+  id             Int       @id @default(autoincrement())
+  // When the form was submitted (from the Gmail notification's internalDate).
+  createdAt      DateTime
+  // When we ingested this record into the OS.
+  ingestedAt     DateTime  @default(now())
+  formType       String    // "trial" | "contact"
+  parentName     String?
+  studentName    String?
+  email          String    // primary email used to match outbound/inbound events
+  otherEmails    String[]  @default([])  // any extra emails found in the form body
+  phone          String?
+  yearLevel      Int?
+  subjects       String?   // comma-separated
+  message        String?   // the free-text message field, if present
+  rawBody        String    // full plain-text body — for debugging + re-parse
+  gmailMessageId String    @unique  // dedupe on notification email
+  gmailThreadId  String?
+  stage          LeadStage @default(NEW)
+  ownerId        Int?
+  owner          Staff?    @relation(fields: [ownerId], references: [id])
+  closedReason   String?
+  closedAt       DateTime?
+  notes          String?
+  events         LeadContactEvent[]
+
+  @@index([email])
+  @@index([stage])
+  @@index([createdAt])
+}
+
+model LeadContactEvent {
+  id             Int      @id @default(autoincrement())
+  leadId         Int
+  lead           Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  // When the event actually happened (Gmail internalDate for emails, entered
+  // time for manual calls/SMS).
+  timestamp      DateTime
+  direction      String   // "inbound" | "outbound"
+  channel        String   @default("email")  // email | phone | sms | in_person
+  subject        String?
+  snippet        String?  // plain-text preview
+  fromAddress    String?
+  toAddress      String?
+  gmailMessageId String?  @unique
+  loggedById     Int?     // set for manual calls; null for auto-ingested email
+  createdAt      DateTime @default(now())
+
+  @@index([leadId, timestamp])
 }
 
 model OAuthToken {
