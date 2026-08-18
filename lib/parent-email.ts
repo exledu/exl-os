@@ -65,6 +65,21 @@ export function buildAbsentNotice(p: ParentEmailParams): BuiltEmail {
   }
 }
 
+// ── Absent, but pre-notified — acknowledgement ────────────────────────────
+
+export function buildAbsentNotifiedNotice(p: ParentEmailParams): BuiltEmail {
+  const studentFull = fullName(p)
+  const classLabel  = `${p.classYearLabel} ${p.subject}`
+  const dateStr     = format(p.sessionDate, 'EEEE d MMMM')
+  return {
+    subject: `Absence Confirmed: ${studentFull} — ${classLabel} (${dateStr})`,
+    html: wrap('Absence Confirmed', `
+    <p>Dear ${greeting(p)},</p>
+    <p style="margin-top: 16px;">Thanks for letting us know that <strong>${studentFull}</strong> would be away from today's <strong>${classLabel}</strong> class. This is just to confirm we've recorded the absence.</p>
+    <p style="margin-top: 16px;">This week's material and homework can be completed via our online resources.</p>`),
+  }
+}
+
 // ── Attendance Confirmation (parent of the homework thread) ───────────────
 
 export function buildAttendanceConfirmation(p: ParentEmailParams): BuiltEmail {

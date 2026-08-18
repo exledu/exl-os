@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db'
 import { format } from 'date-fns'
 import { buildAttendanceModalView, type HomeworkStatus } from '@/lib/slack-attendance'
 import { sendGmailEmail } from '@/lib/gmail-send'
-import { buildAbsentNotice, buildAttendanceConfirmation, buildHomeworkUpdate } from '@/lib/parent-email'
+import { buildAbsentNotice, buildAbsentNotifiedNotice, buildAttendanceConfirmation, buildHomeworkUpdate } from '@/lib/parent-email'
 
 export async function POST(request: Request) {
   const rawBody = await request.text()
@@ -106,24 +106,28 @@ async function handleAttendanceSubmit(payload: {
   const { sessionId } = JSON.parse(payload.view.private_metadata) as { sessionId: number }
   const values = payload.view.state.values
 
-  // Extract { studentId -> { present, homework } } from block ids
-  const updates: { studentId: number; present: boolean; homework: HomeworkStatus }[] = []
+  // Extract { studentId -> { present, notifiedAbsent, homework } } from block ids.
+  // The "present" checkbox block actually holds two options: 'present' and
+  // 'notified' (absence pre-notified). Only one applies at a time — if present
+  // is checked, notified is ignored.
+  const updates: { studentId: number; present: boolean; notifiedAbsent: boolean; homework: HomeworkStatus }[] = []
   for (const [blockId, block] of Object.entries(values)) {
     const m = blockId.match(/^s(\d+)_p$/)
     if (!m) continue
     const studentId = Number(m[1])
-    const presentBlock = block.present
-    const present = (presentBlock?.selected_options?.length ?? 0) > 0
+    const selected = block.present?.selected_options?.map(o => o.value) ?? []
+    const present  = selected.includes('present')
+    const notifiedAbsent = !present && selected.includes('notified')
     const hwBlock = values[`s${studentId}_h`]?.homework
     const homework = (hwBlock?.selected_option?.value ?? 'UNATTEMPTED') as HomeworkStatus
-    updates.push({ studentId, present, homework })
+    updates.push({ studentId, present, notifiedAbsent, homework })
   }
 
   await Promise.all(updates.map(u =>
     prisma.attendance.upsert({
       where: { sessionId_studentId: { sessionId, studentId: u.studentId } },
-      create: { sessionId, studentId: u.studentId, present: u.present, homework: u.homework },
-      update: { present: u.present, homework: u.homework },
+      create: { sessionId, studentId: u.studentId, present: u.present, notifiedAbsent: u.notifiedAbsent, homework: u.homework },
+      update: { present: u.present, notifiedAbsent: u.notifiedAbsent, homework: u.homework },
     })
   ))
 
@@ -156,8 +160,11 @@ async function handleAttendanceSubmit(payload: {
       }
       try {
         if (!u.present) {
-          // Absent → single standalone notice
-          const email = buildAbsentNotice(common)
+          // Absent — pick the acknowledgement style based on whether the
+          // parent had already notified us.
+          const email = u.notifiedAbsent
+            ? buildAbsentNotifiedNotice(common)
+            : buildAbsentNotice(common)
           await sendGmailEmail({ to: s.parentEmail, subject: email.subject, html: email.html })
           return
         }

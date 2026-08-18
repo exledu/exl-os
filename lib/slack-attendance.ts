@@ -13,6 +13,10 @@ const PRESENT_OPTION = {
   text:  { type: 'plain_text' as const, text: 'Present' },
   value: 'present',
 }
+const NOTIFIED_OPTION = {
+  text:  { type: 'plain_text' as const, text: 'Absence pre-notified' },
+  value: 'notified',
+}
 
 interface SessionInfo {
   id: number
@@ -90,7 +94,9 @@ export function buildAttendanceModalView(session: SessionInfo, roster: RosterStu
   for (const s of roster) {
     const labelName = s.trial ? `${s.fullName} (Trial)` : s.fullName
 
-    // Present checkbox — pre-ticked
+    // Present + Notified checkboxes in one block. Present pre-ticked.
+    // Notified is only meaningful when Present is unticked — the interactions
+    // handler treats (present=false, notified=true) as "absent but notified".
     blocks.push({
       type: 'input',
       block_id: `s${s.id}_p`,
@@ -99,7 +105,7 @@ export function buildAttendanceModalView(session: SessionInfo, roster: RosterStu
       element: {
         type: 'checkboxes',
         action_id: 'present',
-        options: [PRESENT_OPTION],
+        options: [PRESENT_OPTION, NOTIFIED_OPTION],
         initial_options: [PRESENT_OPTION],
       },
     })

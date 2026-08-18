@@ -143,9 +143,13 @@ model Attendance {
   session   ClassSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   studentId Int
   student   Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  present   Boolean         @default(false)
-  homework  HomeworkStatus?
-  updatedAt DateTime        @updatedAt
+  present         Boolean         @default(false)
+  // When true AND present=false, the parent had already told us the student
+  // wouldn't attend — we send an acknowledgement email instead of the
+  // "we noticed X is missing" notice.
+  notifiedAbsent  Boolean         @default(false)
+  homework        HomeworkStatus?
+  updatedAt       DateTime        @updatedAt
 
   @@unique([sessionId, studentId])
   @@index([sessionId])
