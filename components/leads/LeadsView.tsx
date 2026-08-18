@@ -35,6 +35,18 @@ const STAGE_LABEL: Record<string, string> = {
   WAITLIST:       'Waitlist',
 }
 
+const STAGE_OPTIONS = ['NEW', 'CONTACTED', 'TRIAL_BOOKED', 'TRIAL_ATTENDED', 'ENROLLED', 'WAITLIST', 'CLOSED_LOST'] as const
+
+const STAGE_PILL: Record<string, string> = {
+  NEW:            'bg-gray-100 text-gray-700 hover:bg-gray-200',
+  CONTACTED:      'bg-blue-100 text-blue-800 hover:bg-blue-200',
+  TRIAL_BOOKED:   'bg-violet-100 text-violet-800 hover:bg-violet-200',
+  TRIAL_ATTENDED: 'bg-indigo-100 text-indigo-800 hover:bg-indigo-200',
+  ENROLLED:       'bg-emerald-100 text-emerald-800 hover:bg-emerald-200',
+  WAITLIST:       'bg-amber-100 text-amber-800 hover:bg-amber-200',
+  CLOSED_LOST:    'bg-slate-100 text-slate-600 hover:bg-slate-200',
+}
+
 function fmtMs(ms: number | null): string {
   if (ms == null) return '—'
   const min = ms / 60_000
@@ -199,9 +211,11 @@ export function LeadsView() {
                     <td className="px-4 py-2 text-xs text-gray-500 capitalize">{l.formType}</td>
                     <td className="px-4 py-2 text-xs text-gray-500 whitespace-nowrap">{fmtDate(l.createdAt)}</td>
                     <td className="px-4 py-2 text-xs">
-                      <span className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-700">
-                        {STAGE_LABEL[l.stage] ?? l.stage}
-                      </span>
+                      <StageCell
+                        leadId={l.id}
+                        stage={l.stage}
+                        onChange={next => setLeads(prev => prev?.map(x => x.id === l.id ? { ...x, stage: next } : x) ?? prev)}
+                      />
                     </td>
                     <td className={`px-4 py-2 text-right tabular-nums ${l.firstResponseMs == null ? 'text-rose-700 font-medium' : ''}`}>
                       {fmtBusinessHoursRough(l.firstResponseMs)}
@@ -222,6 +236,73 @@ export function LeadsView() {
         </div>
       )}
     </div>
+  )
+}
+
+function StageCell({ leadId, stage, onChange }: {
+  leadId: number
+  stage: string
+  onChange: (next: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  async function pick(next: string) {
+    setOpen(false)
+    if (next === stage) return
+    const prev = stage
+    onChange(next)  // optimistic
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/leads/${leadId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage: next }),
+      })
+      if (!res.ok) throw new Error()
+    } catch {
+      onChange(prev)  // revert on failure
+      alert('Failed to update stage')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return
+    const onDoc = () => setOpen(false)
+    // defer so the opening click doesn't immediately close
+    const t = window.setTimeout(() => document.addEventListener('click', onDoc), 0)
+    return () => { window.clearTimeout(t); document.removeEventListener('click', onDoc) }
+  }, [open])
+
+  return (
+    <span className="relative inline-block" onClick={e => e.stopPropagation()}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        disabled={saving}
+        className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium transition-colors ${STAGE_PILL[stage] ?? STAGE_PILL.NEW} disabled:opacity-50`}
+      >
+        {STAGE_LABEL[stage] ?? stage}
+        <svg viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3 opacity-60">
+          <path d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.06l3.71-3.83a.75.75 0 0 1 1.08 1.04l-4.25 4.39a.75.75 0 0 1-1.08 0L5.21 8.27a.75.75 0 0 1 .02-1.06z" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 min-w-[160px] rounded-lg border border-gray-200 bg-white shadow-lg py-1">
+          {STAGE_OPTIONS.map(opt => (
+            <button
+              key={opt}
+              onClick={() => pick(opt)}
+              className={`block w-full px-3 py-1.5 text-left text-xs hover:bg-gray-50 ${opt === stage ? 'font-semibold text-[#002F67]' : 'text-gray-700'}`}
+            >
+              {STAGE_LABEL[opt]}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
   )
 }
 
