@@ -98,6 +98,18 @@ export function TermsView() {
   )
 }
 
+interface ClassOption {
+  id: number
+  subject: { name: string }
+  yearLevel: { level: number }
+  staff: { id: number; name: string }
+  dayOfWeek: number | null
+  startTime: string | null
+  endTime: string | null
+}
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
 function CreateTermModal({ onClose, onCreated, onError }: {
   onClose: () => void
   onCreated: () => void
@@ -109,8 +121,43 @@ function CreateTermModal({ onClose, onCreated, onError }: {
   const [startDate, setStartDate]   = useState<string>('')
   const [weeks, setWeeks]           = useState<number>(10)
   const [saving, setSaving]         = useState(false)
+  const [classes, setClasses]       = useState<ClassOption[]>([])
+  const [selected, setSelected]     = useState<Set<number>>(new Set())
+  const [loadingClasses, setLoadingClasses] = useState(true)
 
   const name = `T${termNumber} ${year}`
+
+  // Fetch all non-archived recurring classes; default all to selected.
+  useEffect(() => {
+    (async () => {
+      setLoadingClasses(true)
+      try {
+        const res = await fetch('/api/classes?archived=false', { cache: 'no-store' })
+        if (res.ok) {
+          const all = (await res.json()) as ClassOption[]
+          const recurring = all.filter(c => c.dayOfWeek != null && c.startTime && c.endTime)
+          // Sort by yearLevel desc then subject
+          recurring.sort((a, b) =>
+            (b.yearLevel.level - a.yearLevel.level) ||
+            a.subject.name.localeCompare(b.subject.name)
+          )
+          setClasses(recurring)
+          setSelected(new Set(recurring.map(c => c.id)))
+        }
+      } finally { setLoadingClasses(false) }
+    })()
+  }, [])
+
+  function toggle(id: number) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  function toggleAll() {
+    setSelected(prev => prev.size === classes.length ? new Set() : new Set(classes.map(c => c.id)))
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -119,7 +166,10 @@ function CreateTermModal({ onClose, onCreated, onError }: {
       const res = await fetch('/api/terms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, year, termNumber, startDate, weeks }),
+        body: JSON.stringify({
+          name, year, termNumber, startDate, weeks,
+          classIds: Array.from(selected),
+        }),
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
@@ -132,9 +182,12 @@ function CreateTermModal({ onClose, onCreated, onError }: {
     }
   }
 
+  const allSelected = selected.size === classes.length && classes.length > 0
+  const noneSelected = selected.size === 0
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <form onSubmit={submit} className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+      <form onSubmit={submit} className="w-full max-w-lg max-h-[90vh] rounded-2xl bg-white p-5 shadow-xl flex flex-col">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-[#002F67]">New term</h2>
           <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600">
@@ -142,7 +195,7 @@ function CreateTermModal({ onClose, onCreated, onError }: {
           </button>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-3 mb-4">
           <div className="grid grid-cols-2 gap-3">
             <label className="text-sm">
               <span className="block text-xs text-gray-500 mb-1">Year</span>
@@ -165,38 +218,80 @@ function CreateTermModal({ onClose, onCreated, onError }: {
             </label>
           </div>
 
-          <label className="block text-sm">
-            <span className="block text-xs text-gray-500 mb-1">W1 start (Monday)</span>
-            <input
-              type="date"
-              value={startDate}
-              onChange={e => setStartDate(e.target.value)}
-              required
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-200"
-            />
-          </label>
-
-          <label className="block text-sm">
-            <span className="block text-xs text-gray-500 mb-1">Weeks</span>
-            <input
-              type="number"
-              value={weeks}
-              onChange={e => setWeeks(Number(e.target.value))}
-              min={1} max={20}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-200"
-            />
-          </label>
-
-          <div className="rounded-lg bg-blue-50/60 border border-blue-100 px-3 py-2 text-xs text-[#002F67]/80">
-            Will create: <strong>{name}</strong>. Every non-archived recurring class gets {weeks} weekly sessions starting from the day-of-week its schedule specifies, offset from the W1 Monday.
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-sm">
+              <span className="block text-xs text-gray-500 mb-1">W1 start (Monday)</span>
+              <input
+                type="date"
+                value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+                required
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-200"
+              />
+            </label>
+            <label className="text-sm">
+              <span className="block text-xs text-gray-500 mb-1">Weeks</span>
+              <input
+                type="number"
+                value={weeks}
+                onChange={e => setWeeks(Number(e.target.value))}
+                min={1} max={20}
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-200"
+              />
+            </label>
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 mt-5">
+        {/* Class picker */}
+        <div className="flex-1 min-h-0 flex flex-col rounded-lg border border-gray-200 overflow-hidden">
+          <div className="flex items-center justify-between bg-gray-50 px-3 py-2 border-b border-gray-200 text-xs">
+            <span className="font-semibold text-gray-600 uppercase tracking-wide">Include classes</span>
+            <button
+              type="button"
+              onClick={toggleAll}
+              className="text-[#002F67] hover:underline"
+            >
+              {allSelected ? 'Deselect all' : 'Select all'}
+            </button>
+          </div>
+          <div className="overflow-y-auto max-h-64">
+            {loadingClasses ? (
+              <div className="p-4 text-xs text-gray-400 text-center">Loading…</div>
+            ) : classes.length === 0 ? (
+              <div className="p-4 text-xs text-gray-400 text-center">No recurring classes found.</div>
+            ) : (
+              classes.map(c => (
+                <label key={c.id} className="flex items-center gap-2 px-3 py-1.5 border-t first:border-t-0 border-gray-100 text-sm hover:bg-blue-50/40 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(c.id)}
+                    onChange={() => toggle(c.id)}
+                    className="rounded"
+                  />
+                  <span className="flex-1 flex items-center gap-2 min-w-0">
+                    <span className="text-gray-800 truncate">Yr{c.yearLevel.level} {c.subject.name}</span>
+                    <span className="text-xs text-gray-400 truncate">
+                      {c.staff.name} · {c.dayOfWeek != null ? DAYS[c.dayOfWeek] : '?'} {c.startTime}–{c.endTime}
+                    </span>
+                  </span>
+                </label>
+              ))
+            )}
+          </div>
+          <div className="bg-gray-50 border-t border-gray-200 px-3 py-1.5 text-[11px] text-gray-500">
+            {selected.size} of {classes.length} classes selected
+          </div>
+        </div>
+
+        <div className="rounded-lg bg-blue-50/60 border border-blue-100 px-3 py-2 text-xs text-[#002F67]/80 mt-3">
+          Will create <strong>{name}</strong> and seed <strong>{selected.size * weeks}</strong> sessions ({selected.size} classes × {weeks} weeks).
+        </div>
+
+        <div className="flex justify-end gap-2 mt-4">
           <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
           <button
             type="submit"
-            disabled={saving || !startDate}
+            disabled={saving || !startDate || noneSelected}
             className="rounded-lg bg-[#002F67] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
             {saving ? 'Creating…' : 'Create term'}

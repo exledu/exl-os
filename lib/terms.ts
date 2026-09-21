@@ -14,6 +14,9 @@ interface CreateTermInput {
   termNumber: number   // 1..4
   startDate:  Date     // Monday of W1
   weeks?:     number   // default 10
+  /** If given, only these classIds are seeded. If omitted, every non-archived
+   *  recurring class is seeded (backwards compat). Empty array = seed none. */
+  classIds?:  number[]
 }
 
 export async function createTerm(input: CreateTermInput) {
@@ -27,7 +30,7 @@ export async function createTerm(input: CreateTermInput) {
       weeks,
     },
   })
-  const seeded = await seedTermForAllClasses(term.id)
+  const seeded = await seedTermForAllClasses(term.id, input.classIds)
   return { term, seeded }
 }
 
@@ -35,7 +38,7 @@ export async function createTerm(input: CreateTermInput) {
  * Iterate every non-archived recurring class and create W1..W(term.weeks)
  * sessions. Skips (class, week) rows that already exist for the term.
  */
-export async function seedTermForAllClasses(termId: number) {
+export async function seedTermForAllClasses(termId: number, classIds?: number[]) {
   const term = await prisma.term.findUnique({ where: { id: termId } })
   if (!term) throw new Error('Term not found')
 
@@ -47,6 +50,7 @@ export async function seedTermForAllClasses(termId: number) {
         dayOfWeek:   { not: null },
         startTime:   { not: null },
         endTime:     { not: null },
+        ...(classIds ? { id: { in: classIds } } : {}),
       },
       select: { id: true, dayOfWeek: true, startTime: true, endTime: true },
     }),
