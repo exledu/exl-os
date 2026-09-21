@@ -25,6 +25,7 @@ interface Row {
   dayOfWeek: number | null
   startTime: string | null
   endTime:   string | null
+  archived:  boolean
   cells:     (Cell | null)[]
 }
 interface TermData {
@@ -33,8 +34,11 @@ interface TermData {
 }
 interface ClassDetail {
   id: number
-  subject:   { name: string }
-  yearLevel: { level: number }
+  subjectId:   number
+  yearLevelId: number
+  archived:  boolean
+  subject:   { id: number; name: string }
+  yearLevel: { id: number; level: number }
   staff:     { id: number; name: string }
   room:      { id: number; name: string } | null
   maxCapacity: number
@@ -143,6 +147,7 @@ export function TermGridView({ termId }: { termId: number }) {
   }, [])
 
   const [createOpen, setCreateOpen] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -150,12 +155,13 @@ export function TermGridView({ termId }: { termId: number }) {
       // refreshes keep the stale data visible.
       if (!data) setLoading(true)
       try {
-        const res = await fetch(`/api/terms/${termId}`)
+        const q = showArchived ? '?includeArchived=1' : ''
+        const res = await fetch(`/api/terms/${termId}${q}`)
         if (res.ok) setData(await res.json())
       } finally { setLoading(false) }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [termId, gridTick])
+  }, [termId, gridTick, showArchived])
 
   if (loading) return <div className="rounded-2xl border border-gray-200 bg-white p-8 text-sm text-gray-500">Loading…</div>
   if (!data)   return <div className="rounded-2xl border border-gray-200 bg-white p-8 text-sm text-gray-500">Term not found.</div>
@@ -177,6 +183,17 @@ export function TermGridView({ termId }: { termId: number }) {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setShowArchived(v => !v)}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium ${
+              showArchived
+                ? 'border-[#002F67] bg-blue-50 text-[#002F67]'
+                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+            title="Include archived classes in the grid"
+          >
+            <Archive className="h-3.5 w-3.5" /> {showArchived ? 'Hide archived' : 'Show archived'}
+          </button>
+          <button
             onClick={() => setCreateOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-lg bg-[#002F67] px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-[#011f42]"
           >
@@ -197,7 +214,7 @@ export function TermGridView({ termId }: { termId: number }) {
           </thead>
           <tbody className="text-gray-700">
             {grid.map(row => (
-              <tr key={row.classId} className="border-t border-gray-100">
+              <tr key={row.classId} className={`border-t border-gray-100 ${row.archived ? 'opacity-50' : ''}`}>
                 <td className="sticky left-0 z-10 bg-white px-3 py-2 border-r border-gray-100 shadow-[2px_0_0_-1px_rgb(229_231_235)]">
                   <button
                     onClick={() => setModal({ kind: 'class', id: row.classId })}
@@ -246,6 +263,12 @@ export function TermGridView({ termId }: { termId: number }) {
       <p className="text-[11px] text-gray-500">
         Click a class name to open its info. Click a session cell to open its details.
       </p>
+
+      <TrialsSection
+        termStart={term.startDate}
+        termWeeks={term.weeks}
+        onOpenSession={id => setModal({ kind: 'session', id })}
+      />
 
       {createOpen && lookups && (
         <ClassCreateModal
@@ -325,18 +348,20 @@ function ModalShell({ title, subtitle, onClose, children }: {
 // ── Class modal ──────────────────────────────────────────────────────────
 
 interface ClassDraft {
-  staffId: number
-  roomId: number | null
+  subjectId:   number
+  yearLevelId: number
+  staffId:     number
+  roomId:      number | null
   maxCapacity: number
-  dayOfWeek: number | null
-  startTime: string | null
+  dayOfWeek:   number | null
+  startTime:   string | null
 }
 
 function ClassModal({ classId, cached, onCache, lookups, onClose, onChanged }: {
   classId: number
   cached: ClassDetail | null
   onCache: (id: number, detail: ClassDetail) => void
-  lookups: { staff: StaffOpt[]; rooms: RoomOpt[]; yearLevels: { id: number; level: number }[] } | null
+  lookups: { staff: StaffOpt[]; rooms: RoomOpt[]; subjects: SubjectOpt[]; yearLevels: { id: number; level: number }[] } | null
   onClose: () => void
   onChanged: () => void
 }) {
@@ -359,6 +384,8 @@ function ClassModal({ classId, cached, onCache, lookups, onClose, onChanged }: {
   function enterEdit() {
     if (!detail) return
     setDraft({
+      subjectId:    detail.subject.id,
+      yearLevelId:  detail.yearLevel.id,
       staffId:      detail.staff.id,
       roomId:       detail.room?.id ?? null,
       maxCapacity:  detail.maxCapacity,
@@ -400,15 +427,16 @@ function ClassModal({ classId, cached, onCache, lookups, onClose, onChanged }: {
     } finally { setBusy(false) }
   }
 
-  async function archive() {
+  async function toggleArchive() {
     if (!detail) return
-    if (!confirm(`Archive Yr${detail.yearLevel.level} ${detail.subject.name}? Sessions after today will be hidden.`)) return
+    const target = !detail.archived
+    if (target && !confirm(`Archive Yr${detail.yearLevel.level} ${detail.subject.name}? Sessions after today will be hidden.`)) return
     const res = await fetch(`/api/classes/${classId}/archive`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ archived: true }),
+      body: JSON.stringify({ archived: target }),
     })
-    if (res.ok) { onClose(); onChanged() }
+    if (res.ok) { await load(); onChanged() }
   }
 
   return (
@@ -418,8 +446,15 @@ function ClassModal({ classId, cached, onCache, lookups, onClose, onChanged }: {
       ) : (
         <div className="space-y-4">
           <div className="flex items-start justify-between gap-2">
-            <div className="text-xl font-semibold text-[#002F67]">
-              Yr{detail.yearLevel.level} {detail.subject.name}
+            <div>
+              <div className="text-xl font-semibold text-[#002F67]">
+                Yr{detail.yearLevel.level} {detail.subject.name}
+              </div>
+              {detail.archived && (
+                <span className="mt-1 inline-block rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                  Archived
+                </span>
+              )}
             </div>
             {mode === 'view' && (
               <button
@@ -432,6 +467,28 @@ function ClassModal({ classId, cached, onCache, lookups, onClose, onChanged }: {
           </div>
 
           <dl className="grid grid-cols-[100px_1fr] gap-x-3 gap-y-2 text-sm">
+            {mode === 'edit' && draft && lookups && (
+              <>
+                <FieldRow icon={Users} label="Subject">
+                  <select
+                    value={draft.subjectId}
+                    onChange={e => setDraft({ ...draft, subjectId: Number(e.target.value) })}
+                    className="w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-sm"
+                  >
+                    {lookups.subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </FieldRow>
+                <FieldRow icon={Users} label="Year">
+                  <select
+                    value={draft.yearLevelId}
+                    onChange={e => setDraft({ ...draft, yearLevelId: Number(e.target.value) })}
+                    className="w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-sm"
+                  >
+                    {lookups.yearLevels.map(y => <option key={y.id} value={y.id}>Yr {y.level}</option>)}
+                  </select>
+                </FieldRow>
+              </>
+            )}
             <FieldRow icon={User} label="Tutor">
               {mode === 'edit' && draft && lookups ? (
                 <select
@@ -502,6 +559,8 @@ function ClassModal({ classId, cached, onCache, lookups, onClose, onChanged }: {
             </FieldRow>
           </dl>
 
+          {mode === 'view' && <HistorySection classId={classId} />}
+
           {mode === 'view' && (
             <div>
               <div className="flex items-baseline justify-between mb-1.5">
@@ -568,11 +627,11 @@ function ClassModal({ classId, cached, onCache, lookups, onClose, onChanged }: {
               </>
             ) : (
               <button
-                onClick={archive}
+                onClick={toggleArchive}
                 disabled={busy}
-                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
               >
-                <Archive className="h-3 w-3" /> Archive
+                <Archive className="h-3 w-3" /> {detail.archived ? 'Unarchive' : 'Archive'}
               </button>
             )}
           </div>
@@ -1157,6 +1216,174 @@ function ConvertTrialInline({ classId, trialDate, onConverted }: {
           {busy ? 'Converting…' : 'Convert'}
         </button>
       </div>
+    </div>
+  )
+}
+
+// ── History (cross-term sessions) inside ClassModal ──────────────────────
+
+interface HistoryTermGroup {
+  term:   number
+  label?: string
+  termId?: number | null
+  weeks:  { id: number; date: string; startTime: string; endTime: string; cancelled: boolean; weekNumber: number }[]
+}
+
+function HistorySection({ classId }: { classId: number }) {
+  const [open, setOpen] = useState(false)
+  const [groups, setGroups] = useState<HistoryTermGroup[] | null>(null)
+
+  useEffect(() => {
+    if (!open || groups !== null) return
+    fetch(`/api/classes/${classId}/sessions`)
+      .then(r => r.ok ? r.json() : [])
+      .then(setGroups)
+  }, [open, groups, classId])
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="w-full inline-flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+      >
+        <span>History across all terms</span>
+        <span className="text-gray-400">Show →</span>
+      </button>
+    )
+  }
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">History</div>
+        <button onClick={() => setOpen(false)} className="text-[10px] text-gray-400 hover:text-gray-700">
+          Hide
+        </button>
+      </div>
+      {groups === null ? (
+        <div className="text-[11px] text-gray-400">Loading…</div>
+      ) : groups.length === 0 ? (
+        <div className="text-[11px] text-gray-400 italic">No sessions yet.</div>
+      ) : (
+        <ul className="space-y-1.5 max-h-56 overflow-y-auto">
+          {groups.map(g => {
+            const active = g.weeks.filter(w => !w.cancelled).length
+            const first  = g.weeks[0]?.date
+            const last   = g.weeks[g.weeks.length - 1]?.date
+            return (
+              <li key={`${g.term}-${g.label ?? ''}`} className="rounded bg-white border border-gray-100 px-2.5 py-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium text-[#002F67]">{g.label ?? `Term ${g.term}`}</span>
+                  <span className="text-gray-500 tabular-nums">{active}/{g.weeks.length}</span>
+                </div>
+                {first && last && (
+                  <div className="text-[10px] text-gray-400 tabular-nums">
+                    {fmtDay(first)} → {fmtDay(last)}
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// ── Trials / one-offs section below the grid ─────────────────────────────
+
+interface TrialClass {
+  id:        number
+  archived:  boolean
+  isRecurring: boolean
+  sessionDate: string | null
+  subject:   { name: string }
+  yearLevel: { level: number }
+  staff:     { id: number; name: string }
+  sessions:  { id: number; date: string; startTime: string; endTime: string }[]
+}
+
+function TrialsSection({ termStart, termWeeks, onOpenSession }: {
+  termStart: string
+  termWeeks: number
+  onOpenSession: (sessionId: number) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [rows, setRows] = useState<TrialClass[] | null>(null)
+
+  useEffect(() => {
+    if (!open || rows !== null) return
+    fetch('/api/classes?archived=false')
+      .then(r => r.ok ? r.json() : [])
+      .then((all: TrialClass[]) => {
+        // Keep only one-off classes with sessionDate inside this term window.
+        const start = new Date(termStart)
+        const end   = new Date(start)
+        end.setUTCDate(end.getUTCDate() + termWeeks * 7)
+        const trials = all.filter(c => !c.isRecurring)
+        // Load their sessions in parallel
+        Promise.all(trials.map(async c => {
+          const sess = await fetch(`/api/classes/${c.id}/sessions`)
+            .then(r => r.ok ? r.json() : [])
+            .then((groups: HistoryTermGroup[]) => groups.flatMap(g => g.weeks))
+          return { ...c, sessions: sess } as TrialClass
+        })).then(withSessions => {
+          const inWindow = withSessions.filter(c =>
+            c.sessions.some(s => {
+              const d = new Date(s.date)
+              return d >= start && d < end
+            })
+          )
+          setRows(inWindow)
+        })
+      })
+  }, [open, rows, termStart, termWeeks])
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+      >
+        <div>
+          <div className="text-sm font-semibold text-[#002F67]">One-off classes &amp; trials</div>
+          <div className="text-[11px] text-gray-500">Sessions in this term window that don't sit on a recurring class.</div>
+        </div>
+        <span className="text-xs text-gray-400">{open ? 'Hide' : 'Show'}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 border-t border-gray-100 pt-3">
+          {rows === null ? (
+            <div className="text-xs text-gray-400">Loading…</div>
+          ) : rows.length === 0 ? (
+            <div className="text-xs text-gray-400 italic">No one-off classes in this term.</div>
+          ) : (
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {rows.map(c => {
+                const s = c.sessions[0]
+                return (
+                  <li key={c.id} className="rounded-lg border border-gray-100 bg-gray-50/50 px-3 py-2">
+                    <div className="text-sm font-medium text-[#002F67]">
+                      Yr{c.yearLevel.level} {c.subject.name}
+                    </div>
+                    <div className="text-[11px] text-gray-500">
+                      {c.staff.name}
+                      {s && ` · ${fmtDay(s.date)} ${s.startTime}–${s.endTime}`}
+                    </div>
+                    {s && (
+                      <button
+                        onClick={() => onOpenSession(s.id)}
+                        className="mt-1 text-[10px] font-medium text-[#002F67] hover:underline"
+                      >
+                        Open session →
+                      </button>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   )
 }
