@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, X, ExternalLink, User, MapPin, Users, CalendarClock } from 'lucide-react'
+import { ArrowLeft, X, ExternalLink, User, MapPin, Users, CalendarClock, Ban, Trash2, Archive, Pencil, Plus } from 'lucide-react'
 
 interface Cell {
   id:         number
@@ -93,6 +93,9 @@ export function TermGridView({ termId }: { termId: number }) {
   const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null)
   const [classDetail, setClassDetail]     = useState<ClassDetail | null>(null)
   const [sessionDetail, setSessionDetail] = useState<SessionDetail | null>(null)
+  const [tick, setTick]                   = useState(0)  // bump to refetch everything
+
+  const reloadGrid = () => setTick(t => t + 1)
 
   useEffect(() => {
     (async () => {
@@ -102,7 +105,7 @@ export function TermGridView({ termId }: { termId: number }) {
         if (res.ok) setData(await res.json())
       } finally { setLoading(false) }
     })()
-  }, [termId])
+  }, [termId, tick])
 
   useEffect(() => {
     if (selectedClassId == null) { setClassDetail(null); return }
@@ -112,7 +115,7 @@ export function TermGridView({ termId }: { termId: number }) {
       if (!cancelled && res.ok) setClassDetail(await res.json())
     })()
     return () => { cancelled = true }
-  }, [selectedClassId])
+  }, [selectedClassId, tick])
 
   useEffect(() => {
     if (selectedSessionId == null) { setSessionDetail(null); return }
@@ -122,7 +125,7 @@ export function TermGridView({ termId }: { termId: number }) {
       if (!cancelled && res.ok) setSessionDetail(await res.json())
     })()
     return () => { cancelled = true }
-  }, [selectedSessionId])
+  }, [selectedSessionId, tick])
 
   if (loading) return <div className="rounded-2xl border border-gray-200 bg-white p-8 text-sm text-gray-500">Loading…</div>
   if (!data)   return <div className="rounded-2xl border border-gray-200 bg-white p-8 text-sm text-gray-500">Term not found.</div>
@@ -136,11 +139,19 @@ export function TermGridView({ termId }: { termId: number }) {
         <ArrowLeft className="h-3.5 w-3.5" /> Back to terms
       </Link>
 
-      <div>
-        <h1 className="text-2xl font-bold text-[#002F67]">{term.name}</h1>
-        <p className="text-xs text-gray-500 mt-0.5">
-          W1 begins {fmtDateLong(term.startDate)} · {term.weeks} weeks · {grid.length} classes
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-[#002F67]">{term.name}</h1>
+          <p className="text-xs text-gray-500 mt-0.5">
+            W1 begins {fmtDateLong(term.startDate)} · {term.weeks} weeks · {grid.length} classes
+          </p>
+        </div>
+        <Link
+          href="/classes/new"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-[#002F67] px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-[#011f42]"
+        >
+          <Plus className="h-3.5 w-3.5" /> New class
+        </Link>
       </div>
 
       <div className="flex gap-4 items-start">
@@ -150,6 +161,7 @@ export function TermGridView({ termId }: { termId: number }) {
             <ClassCard
               detail={classDetail}
               onClose={() => setSelectedClassId(null)}
+              onChanged={reloadGrid}
             />
           </aside>
         )}
@@ -224,10 +236,12 @@ export function TermGridView({ termId }: { termId: number }) {
 
         {/* Right pane — session card */}
         {selectedSessionId != null && (
-          <aside className="w-72 shrink-0">
+          <aside className="w-80 shrink-0">
             <SessionCard
               detail={sessionDetail}
               onClose={() => setSelectedSessionId(null)}
+              onChanged={reloadGrid}
+              onDeleted={() => { setSelectedSessionId(null); reloadGrid() }}
             />
           </aside>
         )}
@@ -243,7 +257,39 @@ export function TermGridView({ termId }: { termId: number }) {
 
 // ── Class card ────────────────────────────────────────────────────────────
 
-function ClassCard({ detail, onClose }: { detail: ClassDetail | null; onClose: () => void }) {
+function ClassCard({ detail, onClose, onChanged }: {
+  detail: ClassDetail | null
+  onClose: () => void
+  onChanged: () => void
+}) {
+  const [busy, setBusy] = useState<number | null>(null)
+
+  async function removeStudent(studentId: number) {
+    if (!detail) return
+    if (!confirm('Remove this student from the class? Their attendance history is kept.')) return
+    setBusy(studentId)
+    try {
+      const res = await fetch(`/api/classes/${detail.id}/enrolments`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId }),
+      })
+      if (res.ok) onChanged()
+    } finally { setBusy(null) }
+  }
+
+  async function archive() {
+    if (!detail) return
+    if (!confirm(`Archive Yr${detail.yearLevel.level} ${detail.subject.name}? Sessions after today will be hidden from schedules.`)) return
+    const res = await fetch(`/api/classes/${detail.id}/archive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archived: true }),
+    })
+    if (res.ok) { onClose(); onChanged() }
+    else alert('Archive failed')
+  }
+
   return (
     <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden sticky top-4">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50">
@@ -260,9 +306,6 @@ function ClassCard({ detail, onClose }: { detail: ClassDetail | null; onClose: (
             <div className="text-lg font-semibold text-[#002F67]">
               Yr{detail.yearLevel.level} {detail.subject.name}
             </div>
-            <Link href={`/classes/${detail.id}`} className="inline-flex items-center gap-0.5 text-[11px] text-gray-500 hover:text-[#002F67]">
-              Open class page <ExternalLink className="h-2.5 w-2.5" />
-            </Link>
           </div>
 
           <div className="space-y-1.5 text-sm">
@@ -277,18 +320,53 @@ function ClassCard({ detail, onClose }: { detail: ClassDetail | null; onClose: (
             <Line icon={Users}          label="Enrolments" value={`${detail.enrolments.length} of ${detail.maxCapacity}`} />
           </div>
 
-          {detail.enrolments.length > 0 && (
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Students</div>
+          {/* Students with remove */}
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Students</div>
+            {detail.enrolments.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">No students enrolled.</p>
+            ) : (
               <ul className="space-y-0.5 text-xs">
                 {detail.enrolments.map(e => (
-                  <li key={e.student.id} className="text-gray-700 truncate">
-                    {e.student.name}{e.student.lastName ? ` ${e.student.lastName}` : ''}
+                  <li key={e.student.id} className="group flex items-center gap-1 text-gray-700">
+                    <span className="flex-1 truncate">
+                      {e.student.name}{e.student.lastName ? ` ${e.student.lastName}` : ''}
+                    </span>
+                    <button
+                      onClick={() => removeStudent(e.student.id)}
+                      disabled={busy === e.student.id}
+                      className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-gray-300 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-30"
+                      title="Remove from class"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
                   </li>
                 ))}
               </ul>
-            </div>
-          )}
+            )}
+          </div>
+
+          {/* Action bar */}
+          <div className="pt-2 border-t border-gray-100 flex flex-wrap gap-2">
+            <Link
+              href={`/classes/${detail.id}/edit`}
+              className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <Pencil className="h-3 w-3" /> Edit
+            </Link>
+            <Link
+              href={`/classes/${detail.id}`}
+              className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <ExternalLink className="h-3 w-3" /> Full page
+            </Link>
+            <button
+              onClick={archive}
+              className="ml-auto inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200"
+            >
+              <Archive className="h-3 w-3" /> Archive
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -297,7 +375,38 @@ function ClassCard({ detail, onClose }: { detail: ClassDetail | null; onClose: (
 
 // ── Session card ──────────────────────────────────────────────────────────
 
-function SessionCard({ detail, onClose }: { detail: SessionDetail | null; onClose: () => void }) {
+function SessionCard({ detail, onClose, onChanged, onDeleted }: {
+  detail: SessionDetail | null
+  onClose: () => void
+  onChanged: () => void
+  onDeleted: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+
+  async function toggleCancel() {
+    if (!detail) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/sessions/${detail.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cancelled: !detail.cancelled }),
+      })
+      if (res.ok) onChanged()
+    } finally { setBusy(false) }
+  }
+
+  async function deleteSession() {
+    if (!detail) return
+    if (!confirm(`Delete session on ${fmtDateLong(detail.date)}? Attendance for this session will also be removed.`)) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/sessions/${detail.id}`, { method: 'DELETE' })
+      if (res.ok) onDeleted()
+      else alert('Failed to delete session')
+    } finally { setBusy(false) }
+  }
+
   return (
     <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden sticky top-4">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50">
@@ -351,7 +460,31 @@ function SessionCard({ detail, onClose }: { detail: SessionDetail | null; onClos
             <Line icon={Users} label="Enrolments" value={String(detail.class._count.enrolments)} />
           </div>
 
-          <RosterSection detail={detail} />
+          <RosterSection detail={detail} onChanged={onChanged} />
+
+          {/* Action bar */}
+          <div className="pt-2 border-t border-gray-100 flex flex-wrap gap-2">
+            <Link
+              href={`/classes/${detail.class.id}`}
+              className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <Pencil className="h-3 w-3" /> Edit date/time/staff
+            </Link>
+            <button
+              onClick={toggleCancel}
+              disabled={busy}
+              className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              <Ban className="h-3 w-3" /> {detail.cancelled ? 'Un-cancel' : 'Cancel'}
+            </button>
+            <button
+              onClick={deleteSession}
+              disabled={busy}
+              className="ml-auto inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 disabled:opacity-50"
+            >
+              <Trash2 className="h-3 w-3" /> Delete
+            </button>
+          </div>
 
           {detail.parentEmailsSentAt && (
             <div className="text-[11px] text-gray-500">
@@ -384,7 +517,13 @@ function Line({ icon: Icon, label, value }: {
   )
 }
 
-function RosterSection({ detail }: { detail: SessionDetail }) {
+const HOMEWORK_CYCLE = ['UNATTEMPTED', 'INCOMPLETE', 'SATISFACTORY', 'EXCELLENT'] as const
+type HomeworkStatus = typeof HOMEWORK_CYCLE[number]
+
+function RosterSection({ detail, onChanged }: {
+  detail: SessionDetail
+  onChanged: () => void
+}) {
   // Build a merged roster from class enrolments + trials, then attach any
   // attendance record that exists for each student.
   const enrolledIds = new Set(detail.class.enrolments.map(e => e.student.id))
@@ -399,10 +538,36 @@ function RosterSection({ detail }: { detail: SessionDetail }) {
   const anyMarked = detail.attendances.length > 0
   const presentN  = detail.attendances.filter(a => a.present).length
 
+  const [savingFor, setSavingFor] = useState<number | null>(null)
+
+  async function patch(studentId: number, body: Record<string, unknown>) {
+    setSavingFor(studentId)
+    try {
+      const res = await fetch(`/api/sessions/${detail.id}/attendance`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId, ...body }),
+      })
+      if (res.ok) onChanged()
+    } finally { setSavingFor(null) }
+  }
+
+  function nextPresenceState(a: { present: boolean; notifiedAbsent: boolean } | undefined) {
+    // Cycle: unmarked → present → absent → notified-absent → present
+    if (!a)                                   return { present: true,  notifiedAbsent: false }
+    if (a.present)                            return { present: false, notifiedAbsent: false }
+    if (!a.present && !a.notifiedAbsent)      return { present: false, notifiedAbsent: true }
+    return { present: true, notifiedAbsent: false }
+  }
+
+  function nextHomework(cur: string | null | undefined): HomeworkStatus {
+    if (!cur) return 'UNATTEMPTED'
+    const i = HOMEWORK_CYCLE.indexOf(cur as HomeworkStatus)
+    return HOMEWORK_CYCLE[(i + 1) % HOMEWORK_CYCLE.length]
+  }
+
   if (roster.length === 0) {
-    return (
-      <div className="text-xs text-gray-400 italic">No students enrolled.</div>
-    )
+    return <div className="text-xs text-gray-400 italic">No students enrolled.</div>
   }
 
   return (
@@ -419,20 +584,40 @@ function RosterSection({ detail }: { detail: SessionDetail }) {
         {roster.map(s => {
           const a = byStudent.get(s.id)
           const name = s.lastName ? `${s.name} ${s.lastName}` : s.name
+          const saving = savingFor === s.id
           return (
             <li key={s.id} className="flex items-center gap-1.5 text-xs">
-              {a
-                ? <PresenceBadge present={a.present} notified={a.notifiedAbsent} />
-                : <UnmarkedBadge />}
+              <button
+                onClick={() => patch(s.id, nextPresenceState(a))}
+                disabled={saving}
+                title="Click to cycle Present → Absent → Notified absent"
+                className="disabled:opacity-40"
+              >
+                {a
+                  ? <PresenceBadge present={a.present} notified={a.notifiedAbsent} />
+                  : <UnmarkedBadge />}
+              </button>
               <span className="flex-1 min-w-0 truncate text-gray-700">{name}</span>
               {s.trial && (
                 <span className="rounded bg-amber-50 border border-amber-200 px-1 py-0.5 text-[9px] font-semibold text-amber-700">TRIAL</span>
               )}
-              {a?.homework && <HomeworkBadge status={a.homework} />}
+              <button
+                onClick={() => patch(s.id, { homework: nextHomework(a?.homework) })}
+                disabled={saving}
+                title="Click to cycle homework status"
+                className="disabled:opacity-40"
+              >
+                {a?.homework
+                  ? <HomeworkBadge status={a.homework} />
+                  : <span className="inline-flex rounded border border-dashed border-gray-300 text-[9px] text-gray-400 px-1 py-0.5">HW?</span>}
+              </button>
             </li>
           )
         })}
       </ul>
+      <p className="mt-1.5 text-[10px] text-gray-400">
+        Click the badge to cycle. Presence: Y → N → N* → Y. HW: unattempted → incomplete → satisfactory → excellent.
+      </p>
     </div>
   )
 }

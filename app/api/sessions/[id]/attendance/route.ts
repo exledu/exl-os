@@ -56,12 +56,30 @@ export async function GET(_req: Request, ctx: Ctx) {
 export async function PATCH(request: Request, ctx: Ctx) {
   const { id } = await ctx.params
   const sessionId = Number(id)
-  const { studentId, present } = await request.json() as { studentId: number; present: boolean }
+  const body = await request.json() as {
+    studentId: number
+    present?: boolean
+    notifiedAbsent?: boolean
+    homework?: 'UNATTEMPTED' | 'INCOMPLETE' | 'SATISFACTORY' | 'EXCELLENT' | null
+  }
+  const { studentId } = body
+
+  // Build the update patch — only writes the fields that were sent.
+  const patch: Record<string, unknown> = {}
+  if (typeof body.present === 'boolean')        patch.present = body.present
+  if (typeof body.notifiedAbsent === 'boolean') patch.notifiedAbsent = body.notifiedAbsent
+  if ('homework' in body)                       patch.homework = body.homework
 
   const updated = await prisma.attendance.upsert({
     where: { sessionId_studentId: { sessionId, studentId } },
-    create: { sessionId, studentId, present },
-    update: { present },
+    create: {
+      sessionId,
+      studentId,
+      present:        body.present        ?? false,
+      notifiedAbsent: body.notifiedAbsent ?? false,
+      homework:       body.homework       ?? null,
+    },
+    update: patch,
   })
 
   return Response.json(updated)

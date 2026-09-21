@@ -64,6 +64,10 @@ export async function PATCH(request: Request, ctx: RouteContext<'/api/sessions/[
   }
 
   const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+  if (typeof body.cancelled === 'boolean') {
+    data.cancelled = body.cancelled
+  }
+
   if (typeof body.startTime === 'string') {
     if (!TIME_RE.test(body.startTime)) return new Response('Invalid startTime', { status: 400 })
     data.startTime = body.startTime
