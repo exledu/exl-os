@@ -65,6 +65,7 @@ interface SessionDetail {
     staff: { id: number; name: string }
     room: { id: number; name: string } | null
     _count: { enrolments: number }
+    enrolments: { student: { id: number; name: string; lastName: string | null } }[]
   }
   attendances: {
     present: boolean
@@ -72,6 +73,7 @@ interface SessionDetail {
     homework: string | null
     student: { id: number; name: string; lastName: string | null }
   }[]
+  trials: { student: { id: number; name: string; lastName: string | null } }[]
 }
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -349,28 +351,7 @@ function SessionCard({ detail, onClose }: { detail: SessionDetail | null; onClos
             <Line icon={Users} label="Enrolments" value={String(detail.class._count.enrolments)} />
           </div>
 
-          {detail.attendances.length > 0 && (
-            <div>
-              <div className="flex items-baseline justify-between mb-1.5">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Attendance</div>
-                <div className="text-[10px] text-gray-400 tabular-nums">
-                  {detail.attendances.filter(a => a.present).length}/{detail.attendances.length}
-                </div>
-              </div>
-              <ul className="space-y-1">
-                {detail.attendances.map(a => {
-                  const name = a.student.lastName ? `${a.student.name} ${a.student.lastName}` : a.student.name
-                  return (
-                    <li key={a.student.id} className="flex items-center gap-1.5 text-xs">
-                      <PresenceBadge present={a.present} notified={a.notifiedAbsent} />
-                      <span className="flex-1 min-w-0 truncate text-gray-700">{name}</span>
-                      {a.homework && <HomeworkBadge status={a.homework} />}
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          )}
+          <RosterSection detail={detail} />
 
           {detail.parentEmailsSentAt && (
             <div className="text-[11px] text-gray-500">
@@ -400,6 +381,68 @@ function Line({ icon: Icon, label, value }: {
         <div className="text-gray-800">{value}</div>
       </div>
     </div>
+  )
+}
+
+function RosterSection({ detail }: { detail: SessionDetail }) {
+  // Build a merged roster from class enrolments + trials, then attach any
+  // attendance record that exists for each student.
+  const enrolledIds = new Set(detail.class.enrolments.map(e => e.student.id))
+  const roster = [
+    ...detail.class.enrolments.map(e => ({ ...e.student, trial: false })),
+    ...detail.trials
+      .filter(t => !enrolledIds.has(t.student.id))
+      .map(t => ({ ...t.student, trial: true })),
+  ].sort((a, b) => a.name.localeCompare(b.name))
+
+  const byStudent = new Map(detail.attendances.map(a => [a.student.id, a]))
+  const anyMarked = detail.attendances.length > 0
+  const presentN  = detail.attendances.filter(a => a.present).length
+
+  if (roster.length === 0) {
+    return (
+      <div className="text-xs text-gray-400 italic">No students enrolled.</div>
+    )
+  }
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1.5">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+          {anyMarked ? 'Attendance' : 'Roster'}
+        </div>
+        <div className="text-[10px] text-gray-400 tabular-nums">
+          {anyMarked ? `${presentN}/${roster.length}` : `${roster.length} enrolled`}
+        </div>
+      </div>
+      <ul className="space-y-1">
+        {roster.map(s => {
+          const a = byStudent.get(s.id)
+          const name = s.lastName ? `${s.name} ${s.lastName}` : s.name
+          return (
+            <li key={s.id} className="flex items-center gap-1.5 text-xs">
+              {a
+                ? <PresenceBadge present={a.present} notified={a.notifiedAbsent} />
+                : <UnmarkedBadge />}
+              <span className="flex-1 min-w-0 truncate text-gray-700">{name}</span>
+              {s.trial && (
+                <span className="rounded bg-amber-50 border border-amber-200 px-1 py-0.5 text-[9px] font-semibold text-amber-700">TRIAL</span>
+              )}
+              {a?.homework && <HomeworkBadge status={a.homework} />}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+function UnmarkedBadge() {
+  return (
+    <span
+      className="inline-flex h-4 w-4 items-center justify-center rounded border border-dashed border-gray-300 text-[10px] text-gray-400"
+      title="Attendance not marked yet"
+    >·</span>
   )
 }
 

@@ -17,6 +17,9 @@ export async function GET(_req: Request, ctx: RouteContext<'/api/sessions/[id]'>
           staff:     { select: { id: true, name: true } },
           room:      { select: { id: true, name: true } },
           _count:    { select: { enrolments: true } },
+          enrolments: {
+            select: { student: { select: { id: true, name: true, lastName: true } } },
+          },
         },
       },
       attendances: {
@@ -25,6 +28,9 @@ export async function GET(_req: Request, ctx: RouteContext<'/api/sessions/[id]'>
           student: { select: { id: true, name: true, lastName: true } },
         },
         orderBy: { student: { name: 'asc' } },
+      },
+      trials: {
+        select: { student: { select: { id: true, name: true, lastName: true } } },
       },
     },
   })
