@@ -30,6 +30,7 @@ export async function GET(request: Request) {
       date: { gte: start, lt: end },
     },
     include: {
+      yearLevel: { select: { level: true } },
       class: {
         include: {
           subject:    { select: { name: true } },
@@ -79,7 +80,7 @@ export async function GET(request: Request) {
       date:      s.date.toISOString().slice(0, 10),
       startTime: s.startTime,
       endTime:   s.endTime,
-      className: `Yr${s.class.yearLevel.level} ${s.class.subject.name}`,
+      className: `Yr${s.yearLevel?.level ?? s.class.yearLevel.level} ${s.class.subject.name}`,
       students,
       hours,
       rate,

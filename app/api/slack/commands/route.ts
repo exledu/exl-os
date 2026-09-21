@@ -71,6 +71,7 @@ export async function POST(request: Request) {
           OR: [{ staffId: null }, { staffId: { not: null } }],
         },
         include: {
+          yearLevel: true,
           class: { include: { subject: true, yearLevel: true, room: true, staff: true } },
         },
         orderBy: { date: 'asc' },
@@ -88,6 +89,7 @@ export async function POST(request: Request) {
           ],
         },
         include: {
+          yearLevel: true,
           class: { include: { subject: true, yearLevel: true, room: true, staff: true } },
         },
         orderBy: { date: 'asc' },
@@ -104,9 +106,10 @@ export async function POST(request: Request) {
   const options = sessions.map(s => {
     const dateStr = format(s.date, 'EEE d MMM')
     const staffName = s.class.staff?.name ?? 'Unassigned'
+    const yr = s.yearLevel?.level ?? s.class.yearLevel.level
     const label = filterDate
-      ? `${staffName} — Yr ${s.class.yearLevel.level} ${s.class.subject.name}, ${s.startTime}–${s.endTime}`
-      : `Yr ${s.class.yearLevel.level} ${s.class.subject.name} — ${dateStr}, ${s.startTime}–${s.endTime}`
+      ? `${staffName} — Yr ${yr} ${s.class.subject.name}, ${s.startTime}–${s.endTime}`
+      : `Yr ${yr} ${s.class.subject.name} — ${dateStr}, ${s.startTime}–${s.endTime}`
     return {
       text: { type: 'plain_text' as const, text: label.slice(0, 75) },
       value: String(s.id),

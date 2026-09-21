@@ -33,7 +33,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       select: {
         id: true, classId: true, weekNumber: true, date: true,
         cancelled: true, startTime: true, endTime: true, staffId: true,
-        staff: { select: { id: true, name: true } },
+        staff:     { select: { id: true, name: true } },
+        yearLevel: { select: { level: true } },
       },
       orderBy: [{ classId: 'asc' }, { weekNumber: 'asc' }],
     }),
@@ -42,15 +43,19 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   // Build the class × week grid.
   const grid = classes.map(cls => {
     const row: (typeof sessions[number] | null)[] = Array.from({ length: term.weeks }, () => null)
-    for (const s of sessions.filter(x => x.classId === cls.id)) {
+    const mine = sessions.filter(x => x.classId === cls.id)
+    for (const s of mine) {
       if (s.weekNumber && s.weekNumber >= 1 && s.weekNumber <= term.weeks) {
         row[s.weekNumber - 1] = s
       }
     }
+    // Prefer this term's sessions' yearLevel over the class's current yearLevel —
+    // otherwise a class bumped to Yr 12 for T4 would mislabel its T3 row.
+    const termYearLevel = mine.find(s => s.yearLevel)?.yearLevel?.level ?? cls.yearLevel.level
     return {
       classId:    cls.id,
       subject:    cls.subject.name,
-      yearLevel:  cls.yearLevel.level,
+      yearLevel:  termYearLevel,
       staff:      cls.staff.name,
       dayOfWeek:  cls.dayOfWeek,
       startTime:  cls.startTime,

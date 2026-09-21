@@ -72,13 +72,14 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   // Pad enough sessions to round out the current term. If the trial is W4 (mid-term),
   // we only need 6 more (10 - 4) to finish Term 1.
   const need = SESSIONS_PER_TERM - weekOfTerm
-  const newRows: { classId: number; date: Date; startTime: string; endTime: string }[] = []
+  const newRows: { classId: number; date: Date; startTime: string; endTime: string; yearLevelId: number }[] = []
   for (let i = 0; i < need; i++) {
     newRows.push({
       classId,
       date:      new Date(cursor),
       startTime,
       endTime,
+      yearLevelId: cls.yearLevelId,
     })
     cursor.setUTCDate(cursor.getUTCDate() + 7)
   }

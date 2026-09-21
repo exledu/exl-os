@@ -55,6 +55,7 @@ export async function GET(request: Request) {
       date: { gte: yesterdayUTC(), lte: tomorrowUTC() },
     },
     include: {
+      yearLevel: true,
       class: {
         include: {
           subject: true,
@@ -126,7 +127,7 @@ export async function GET(request: Request) {
         date:      session.date,
         startTime: session.startTime,
         endTime:   session.endTime,
-        yearLevel: session.class.yearLevel.level,
+        yearLevel: session.yearLevel?.level ?? session.class.yearLevel.level,
         subject:   session.class.subject.name,
       },
       targetLevel,

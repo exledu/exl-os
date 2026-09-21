@@ -14,10 +14,11 @@ model Subject {
 }
 
 model YearLevel {
-  id       Int       @id @default(autoincrement())
-  level    Int       @unique
-  classes  Class[]
-  students Student[]
+  id            Int            @id @default(autoincrement())
+  level         Int            @unique
+  classes       Class[]
+  students      Student[]
+  classSessions ClassSession[]
 }
 
 model Room {
@@ -116,6 +117,11 @@ model ClassSession {
   termId       Int?
   term         Term?     @relation(fields: [termId], references: [id], onDelete: SetNull)
   weekNumber   Int?      // 1..10 inside the term
+  // Each session snapshots the year it was for. Nullable during migration —
+  // once backfilled from class.yearLevelId, this becomes the source of truth
+  // for reports so a mid-year rollover doesn't retroactively rewrite history.
+  yearLevelId  Int?
+  yearLevel    YearLevel? @relation(fields: [yearLevelId], references: [id])
   attendances  Attendance[]
   trials       TrialEnrolment[]
   // 0 = no reminders sent, 1 = initial DM (at session start), 2 = +30min follow-up, 3 = +40min final

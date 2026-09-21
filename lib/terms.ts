@@ -87,7 +87,7 @@ export async function seedTermForAllClasses(termId: number, classIds?: number[])
         endTime:     { not: null },
         ...(classIds ? { id: { in: classIds } } : {}),
       },
-      select: { id: true, dayOfWeek: true, startTime: true, endTime: true },
+      select: { id: true, dayOfWeek: true, startTime: true, endTime: true, yearLevelId: true },
     }),
     prisma.classSession.findMany({
       where: { termId: term.id },
@@ -96,17 +96,21 @@ export async function seedTermForAllClasses(termId: number, classIds?: number[])
   ])
 
   const taken = new Set(existing.map(e => `${e.classId}:${e.weekNumber}`))
-  const rows: { classId: number; termId: number; weekNumber: number; date: Date; startTime: string; endTime: string }[] = []
+  const rows: {
+    classId: number; termId: number; weekNumber: number;
+    date: Date; startTime: string; endTime: string; yearLevelId: number;
+  }[] = []
   for (const cls of classes) {
     for (let w = 1; w <= term.weeks; w++) {
       if (taken.has(`${cls.id}:${w}`)) continue
       rows.push({
-        classId:    cls.id,
-        termId:     term.id,
-        weekNumber: w,
-        date:       weekDate(term.startDate, w, cls.dayOfWeek!),
-        startTime:  cls.startTime!,
-        endTime:    cls.endTime!,
+        classId:     cls.id,
+        termId:      term.id,
+        weekNumber:  w,
+        date:        weekDate(term.startDate, w, cls.dayOfWeek!),
+        startTime:   cls.startTime!,
+        endTime:     cls.endTime!,
+        yearLevelId: cls.yearLevelId,
       })
     }
   }
@@ -136,10 +140,11 @@ export async function slotClassIntoTerm(classId: number, termId: number, fromWee
       data: {
         classId,
         termId,
-        weekNumber: w,
+        weekNumber:  w,
         date,
-        startTime:  cls.startTime,
-        endTime:    cls.endTime,
+        startTime:   cls.startTime,
+        endTime:     cls.endTime,
+        yearLevelId: cls.yearLevelId,
       },
     })
     created++

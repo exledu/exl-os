@@ -47,6 +47,7 @@ async function handleOpenAttendanceModal(
   const session = await prisma.classSession.findUnique({
     where: { id: sessionId },
     include: {
+      yearLevel: true,
       class: {
         include: {
           subject: true,
@@ -86,7 +87,7 @@ async function handleOpenAttendanceModal(
       date:      session.date,
       startTime: session.startTime,
       endTime:   session.endTime,
-      yearLevel: session.class.yearLevel.level,
+      yearLevel: session.yearLevel?.level ?? session.class.yearLevel.level,
       subject:   session.class.subject.name,
     },
     roster,
@@ -135,6 +136,7 @@ async function handleAttendanceSubmit(payload: {
   const session = await prisma.classSession.findUnique({
     where: { id: sessionId },
     include: {
+      yearLevel: true,
       class: { include: { subject: true, yearLevel: true } },
     },
   })
@@ -144,7 +146,7 @@ async function handleAttendanceSubmit(payload: {
       select: { id: true, name: true, lastName: true, parentFirstName: true, parentEmail: true },
     })
     const studentMap = new Map(students.map(s => [s.id, s]))
-    const classYearLabel = `Yr ${session.class.yearLevel.level}`
+    const classYearLabel = `Yr ${session.yearLevel?.level ?? session.class.yearLevel.level}`
     const subjectName = session.class.subject.name
 
     await Promise.allSettled(updates.map(async u => {
@@ -215,6 +217,7 @@ async function handleCoverRequestSubmit(payload: {
   const session = await prisma.classSession.findUnique({
     where: { id: sessionId },
     include: {
+      yearLevel: true,
       class: { include: { subject: true, yearLevel: true, room: true } },
     },
   })
@@ -225,7 +228,7 @@ async function handleCoverRequestSubmit(payload: {
 
   const channelId = process.env.SLACK_COVERS_CHANNEL_ID!
 
-  const className = `Yr ${session.class.yearLevel.level} ${session.class.subject.name}`
+  const className = `Yr ${session.yearLevel?.level ?? session.class.yearLevel.level} ${session.class.subject.name}`
   const shortDate = format(session.date, 'EEE d MMM')
   const timeStr = `${session.startTime}–${session.endTime}`
 

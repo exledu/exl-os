@@ -15,9 +15,9 @@ export async function initFirstTerm(classId: number, startDate: Date) {
   let cursor = setDay(startOfDay(startDate), cls.dayOfWeek, { weekStartsOn: 0 })
   if (cursor < startOfDay(startDate)) cursor = addDays(cursor, 7)
 
-  const sessions: { classId: number; date: Date; startTime: string; endTime: string }[] = []
+  const sessions: { classId: number; date: Date; startTime: string; endTime: string; yearLevelId: number }[] = []
   for (let i = 0; i < SESSIONS_PER_TERM; i++) {
-    sessions.push({ classId, date: startOfDay(cursor), startTime: cls.startTime, endTime: cls.endTime })
+    sessions.push({ classId, date: startOfDay(cursor), startTime: cls.startTime, endTime: cls.endTime, yearLevelId: cls.yearLevelId })
     cursor = addDays(cursor, 7)
   }
 
@@ -50,9 +50,9 @@ export async function addNextTerm(classId: number) {
   let cursor = setDay(afterSkip, cls.dayOfWeek, { weekStartsOn: 0 })
   if (cursor < afterSkip) cursor = addDays(cursor, 7)
 
-  const sessions: { classId: number; date: Date; startTime: string; endTime: string }[] = []
+  const sessions: { classId: number; date: Date; startTime: string; endTime: string; yearLevelId: number }[] = []
   for (let i = 0; i < SESSIONS_PER_TERM; i++) {
-    sessions.push({ classId, date: startOfDay(cursor), startTime: cls.startTime, endTime: cls.endTime })
+    sessions.push({ classId, date: startOfDay(cursor), startTime: cls.startTime, endTime: cls.endTime, yearLevelId: cls.yearLevelId })
     cursor = addDays(cursor, 7)
   }
 
@@ -120,6 +120,7 @@ export async function createOneOffSession(classId: number) {
       date: startOfDay(cls.sessionDate),
       startTime: cls.startTime,
       endTime: cls.endTime,
+      yearLevelId: cls.yearLevelId,
     },
   })
 }
