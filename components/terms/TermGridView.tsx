@@ -12,6 +12,8 @@ interface Cell {
   cancelled:  boolean
   startTime:  string
   endTime:    string
+  staffId:    number | null
+  staff:      { id: number; name: string } | null
 }
 interface Row {
   classId:   number
@@ -74,7 +76,7 @@ export function TermGridView({ termId }: { termId: number }) {
             <tr className="border-b border-gray-200 bg-gray-50 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
               <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2.5 min-w-[220px]">Class</th>
               {Array.from({ length: term.weeks }, (_, i) => (
-                <th key={i} className="px-2 py-2.5 text-center min-w-[76px]">W{i + 1}</th>
+                <th key={i} className="px-2 py-2.5 text-center min-w-[88px]">W{i + 1}</th>
               ))}
             </tr>
           </thead>
@@ -89,25 +91,34 @@ export function TermGridView({ termId }: { termId: number }) {
                     {row.staff} · {row.dayOfWeek != null ? DAYS[row.dayOfWeek] : '?'} {row.startTime}–{row.endTime}
                   </div>
                 </td>
-                {row.cells.map((cell, i) => (
-                  <td key={i} className="px-2 py-2 text-center border-l border-gray-100 first:border-l-0">
-                    {cell ? (
-                      <Link
-                        href={`/classes/${row.classId}`}
-                        className={`inline-block rounded px-1.5 py-0.5 text-[11px] tabular-nums transition-colors ${
-                          cell.cancelled
-                            ? 'bg-gray-100 text-gray-400 line-through'
-                            : 'bg-blue-50 text-[#002F67] hover:bg-blue-100'
-                        }`}
-                        title={`Session #${cell.id}${cell.cancelled ? ' (cancelled)' : ''}`}
-                      >
-                        {fmtDay(cell.date)}
-                      </Link>
-                    ) : (
-                      <span className="text-gray-300">—</span>
-                    )}
-                  </td>
-                ))}
+                {row.cells.map((cell, i) => {
+                  const effectiveStaff = cell?.staff?.name ?? row.staff
+                  const isCover = !!cell?.staff && cell.staff.name !== row.staff
+                  return (
+                    <td key={i} className="px-2 py-2 text-center border-l border-gray-100 first:border-l-0 align-top">
+                      {cell ? (
+                        <Link
+                          href={`/classes/${row.classId}`}
+                          className={`inline-flex flex-col items-center rounded px-1.5 py-1 leading-tight transition-colors ${
+                            cell.cancelled
+                              ? 'bg-gray-100 text-gray-400 line-through'
+                              : 'bg-blue-50 text-[#002F67] hover:bg-blue-100'
+                          }`}
+                          title={`Session #${cell.id}${cell.cancelled ? ' (cancelled)' : ''}${isCover ? ' — cover' : ''}`}
+                        >
+                          <span className="text-[11px] tabular-nums">{fmtDay(cell.date)}</span>
+                          <span className={`text-[10px] mt-0.5 ${
+                            cell.cancelled ? 'text-gray-400' : isCover ? 'text-amber-700 font-medium' : 'text-[#002F67]/60'
+                          }`}>
+                            {effectiveStaff.split(' ')[0]}
+                          </span>
+                        </Link>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
+                  )
+                })}
               </tr>
             ))}
           </tbody>

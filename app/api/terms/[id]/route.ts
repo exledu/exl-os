@@ -26,7 +26,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       where: { termId: term.id },
       select: {
         id: true, classId: true, weekNumber: true, date: true,
-        cancelled: true, startTime: true, endTime: true,
+        cancelled: true, startTime: true, endTime: true, staffId: true,
+        staff: { select: { id: true, name: true } },
       },
       orderBy: [{ classId: 'asc' }, { weekNumber: 'asc' }],
     }),
