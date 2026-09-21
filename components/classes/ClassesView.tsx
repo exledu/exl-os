@@ -61,8 +61,10 @@ interface SessionWeek {
 }
 
 interface TermGroup {
-  term: number
-  weeks: SessionWeek[]
+  term:   number
+  label?: string
+  termId?: number | null
+  weeks:  SessionWeek[]
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -676,7 +678,7 @@ function TermSection({
       >
         <div className="h-px flex-1 bg-gradient-to-r from-transparent" style={{ '--tw-gradient-to': colour + '40' } as React.CSSProperties} />
         <span className="text-xs font-bold text-[#002F67]/50 uppercase tracking-wider px-2">
-          Term {term.term}
+          {term.label ?? `Term ${term.term}`}
         </span>
         <div className="h-px flex-1 bg-gradient-to-l from-transparent" style={{ '--tw-gradient-to': colour + '40' } as React.CSSProperties} />
         {collapsed
