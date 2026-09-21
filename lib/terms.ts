@@ -38,38 +38,41 @@ export async function createTerm(input: CreateTermInput) {
 export async function seedTermForAllClasses(termId: number) {
   const term = await prisma.term.findUnique({ where: { id: termId } })
   if (!term) throw new Error('Term not found')
-  const classes = await prisma.class.findMany({
-    where: {
-      archived:    false,
-      isRecurring: true,
-      dayOfWeek:   { not: null },
-      startTime:   { not: null },
-      endTime:     { not: null },
-    },
-    select: { id: true, dayOfWeek: true, startTime: true, endTime: true },
-  })
-  let created = 0
+
+  const [classes, existing] = await Promise.all([
+    prisma.class.findMany({
+      where: {
+        archived:    false,
+        isRecurring: true,
+        dayOfWeek:   { not: null },
+        startTime:   { not: null },
+        endTime:     { not: null },
+      },
+      select: { id: true, dayOfWeek: true, startTime: true, endTime: true },
+    }),
+    prisma.classSession.findMany({
+      where: { termId: term.id },
+      select: { classId: true, weekNumber: true },
+    }),
+  ])
+
+  const taken = new Set(existing.map(e => `${e.classId}:${e.weekNumber}`))
+  const rows: { classId: number; termId: number; weekNumber: number; date: Date; startTime: string; endTime: string }[] = []
   for (const cls of classes) {
     for (let w = 1; w <= term.weeks; w++) {
-      const date = weekDate(term.startDate, w, cls.dayOfWeek!)
-      const existing = await prisma.classSession.findFirst({
-        where: { classId: cls.id, termId: term.id, weekNumber: w },
+      if (taken.has(`${cls.id}:${w}`)) continue
+      rows.push({
+        classId:    cls.id,
+        termId:     term.id,
+        weekNumber: w,
+        date:       weekDate(term.startDate, w, cls.dayOfWeek!),
+        startTime:  cls.startTime!,
+        endTime:    cls.endTime!,
       })
-      if (existing) continue
-      await prisma.classSession.create({
-        data: {
-          classId:    cls.id,
-          termId:     term.id,
-          weekNumber: w,
-          date,
-          startTime:  cls.startTime!,
-          endTime:    cls.endTime!,
-        },
-      })
-      created++
     }
   }
-  return { classCount: classes.length, sessionsCreated: created }
+  if (rows.length > 0) await prisma.classSession.createMany({ data: rows })
+  return { classCount: classes.length, sessionsCreated: rows.length }
 }
 
 /**
