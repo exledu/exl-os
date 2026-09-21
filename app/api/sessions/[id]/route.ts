@@ -19,7 +19,10 @@ export async function GET(_req: Request, ctx: RouteContext<'/api/sessions/[id]'>
           room:      { select: { id: true, name: true } },
           _count:    { select: { enrolments: true } },
           enrolments: {
-            select: { student: { select: { id: true, name: true, lastName: true } } },
+            select: {
+              enrolledAt: true,
+              student:    { select: { id: true, name: true, lastName: true } },
+            },
           },
         },
       },

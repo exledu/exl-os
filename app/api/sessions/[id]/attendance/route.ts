@@ -8,13 +8,18 @@ export async function GET(_req: Request, ctx: Ctx) {
 
   const session = await prisma.classSession.findUnique({
     where: { id: sessionId },
-    select: { classId: true },
+    select: { classId: true, date: true },
   })
   if (!session) return new Response('Session not found', { status: 404 })
 
+  // enrolments in effect at the time of this session — a student who joined
+  // afterwards shouldn't retroactively appear on the roster.
+  const enrolmentCutoff = new Date(session.date)
+  enrolmentCutoff.setUTCHours(23, 59, 59, 999)
+
   const [enrolments, trials, attendance] = await Promise.all([
     prisma.enrolment.findMany({
-      where: { classId: session.classId },
+      where: { classId: session.classId, enrolledAt: { lte: enrolmentCutoff } },
       include: { student: { select: { id: true, name: true, lastName: true } } },
     }),
     prisma.trialEnrolment.findMany({

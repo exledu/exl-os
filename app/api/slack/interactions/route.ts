@@ -65,9 +65,17 @@ async function handleOpenAttendanceModal(
     return new Response('', { status: 200 })
   }
 
-  const enrolledIds = new Set(session.class.enrolments.map(e => e.student.id))
+  // Only enrolments that existed on/before the session date — a student who
+  // joined afterwards shouldn't appear on the roster for older sessions.
+  const enrolmentCutoff = new Date(session.date)
+  enrolmentCutoff.setUTCHours(23, 59, 59, 999)
+  const activeEnrolments = session.class.enrolments.filter(
+    e => e.enrolledAt <= enrolmentCutoff
+  )
+
+  const enrolledIds = new Set(activeEnrolments.map(e => e.student.id))
   const roster = [
-    ...session.class.enrolments.map(e => ({
+    ...activeEnrolments.map(e => ({
       id:        e.student.id,
       fullName:  e.student.lastName ? `${e.student.name} ${e.student.lastName}` : e.student.name,
       trial:     false,

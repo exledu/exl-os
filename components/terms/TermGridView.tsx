@@ -70,7 +70,10 @@ interface SessionDetail {
     staff: { id: number; name: string }
     room: { id: number; name: string } | null
     _count: { enrolments: number }
-    enrolments: { student: { id: number; name: string; lastName: string | null } }[]
+    enrolments: {
+      enrolledAt: string
+      student: { id: number; name: string; lastName: string | null }
+    }[]
   }
   attendances: {
     present: boolean
@@ -992,9 +995,16 @@ function RosterSection({ detail, pending, onPending }: {
   pending:  Map<number, PendingAttendance>
   onPending: (studentId: number, patch: PendingAttendance) => void
 }) {
-  const enrolledIds = new Set(detail.class.enrolments.map(e => e.student.id))
+  // Only include enrolments that existed on or before this session's date, so
+  // a student who joined mid-term doesn't retroactively appear in older
+  // sessions' rosters.
+  const sessionDay = new Date(detail.date + 'T23:59:59.999Z')
+  const activeEnrolments = detail.class.enrolments.filter(
+    e => new Date(e.enrolledAt) <= sessionDay
+  )
+  const enrolledIds = new Set(activeEnrolments.map(e => e.student.id))
   const roster = [
-    ...detail.class.enrolments.map(e => ({ ...e.student, trial: false })),
+    ...activeEnrolments.map(e => ({ ...e.student, trial: false })),
     ...detail.trials
       .filter(t => !enrolledIds.has(t.student.id))
       .map(t => ({ ...t.student, trial: true })),

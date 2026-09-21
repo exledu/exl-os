@@ -60,7 +60,7 @@ export async function GET(request: Request) {
         include: {
           subject: true,
           yearLevel: true,
-          enrolments: { select: { studentId: true } },
+          enrolments: { select: { studentId: true, enrolledAt: true } },
           staff: { select: { id: true, name: true, email: true, slackUserId: true } },
         },
       },
@@ -84,8 +84,15 @@ export async function GET(request: Request) {
 
     if (targetLevel === 0 || targetLevel <= session.attendanceReminderLevel) continue
 
-    // Skip if attendance is fully marked already (any reminder past initial would be noise)
-    const enrolledIds = new Set(session.class.enrolments.map(e => e.studentId))
+    // Skip if attendance is fully marked already (any reminder past initial would be noise).
+    // Only count enrolments that were in effect at the time of this session.
+    const enrolmentCutoff = new Date(session.date)
+    enrolmentCutoff.setUTCHours(23, 59, 59, 999)
+    const enrolledIds = new Set(
+      session.class.enrolments
+        .filter(e => e.enrolledAt <= enrolmentCutoff)
+        .map(e => e.studentId)
+    )
     const markedIds = new Set(session.attendances.map(a => a.studentId))
     const allMarked = enrolledIds.size > 0 && [...enrolledIds].every(id => markedIds.has(id))
     if (allMarked && targetLevel > 1) {
