@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
-import { ArrowLeft, X, User, MapPin, Users, CalendarClock, Ban, Trash2, Archive, Pencil, Plus, UserPlus, Repeat } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { X, User, MapPin, Users, CalendarClock, Ban, Trash2, Archive, Pencil, Plus, UserPlus, Repeat, ChevronLeft, ChevronRight, PlusCircle } from 'lucide-react'
+import { CreateTermModal } from './TermsView'
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -148,6 +149,20 @@ export function TermGridView({ termId }: { termId: number }) {
 
   const [createOpen, setCreateOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
+  const [createTermOpen, setCreateTermOpen] = useState(false)
+  const [createTermError, setCreateTermError] = useState<string | null>(null)
+  const router = useRouter()
+
+  // Ordered list of every term so we can compute prev/next relative to this one.
+  const [allTerms, setAllTerms] = useState<{ id: number; startDate: string; name: string }[]>([])
+  useEffect(() => {
+    fetch('/api/terms')
+      .then(r => r.ok ? r.json() : [])
+      .then((rows: { id: number; startDate: string; name: string }[]) => {
+        rows.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
+        setAllTerms(rows)
+      })
+  }, [gridTick])
 
   useEffect(() => {
     (async () => {
@@ -168,18 +183,45 @@ export function TermGridView({ termId }: { termId: number }) {
 
   const { term, grid } = data
 
+  const curIdx = allTerms.findIndex(t => t.id === termId)
+  const prevTerm = curIdx > 0 ? allTerms[curIdx - 1] : null
+  const nextTerm = curIdx >= 0 && curIdx < allTerms.length - 1 ? allTerms[curIdx + 1] : null
+
   return (
     <div className="space-y-5">
-      <Link href="/terms" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#002F67]">
-        <ArrowLeft className="h-3.5 w-3.5" /> Back to terms
-      </Link>
-
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-[#002F67]">{term.name}</h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            W1 begins {fmtDateLong(term.startDate)} · {term.weeks} weeks · {grid.length} classes
-          </p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => prevTerm && router.push(`/terms/${prevTerm.id}`)}
+            disabled={!prevTerm}
+            title={prevTerm ? `Previous: ${prevTerm.name}` : 'No earlier term'}
+            className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2 text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-[#002F67]">{term.name}</h1>
+            <p className="text-xs text-gray-500 mt-0.5">
+              W1 begins {fmtDateLong(term.startDate)} · {term.weeks} weeks · {grid.length} classes
+            </p>
+          </div>
+          {nextTerm ? (
+            <button
+              onClick={() => router.push(`/terms/${nextTerm.id}`)}
+              title={`Next: ${nextTerm.name}`}
+              className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2 text-gray-600 hover:bg-gray-50"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          ) : (
+            <button
+              onClick={() => setCreateTermOpen(true)}
+              title="Create next term"
+              className="inline-flex items-center gap-1 rounded-lg border border-dashed border-[#002F67] bg-white px-2 py-1.5 text-xs font-medium text-[#002F67] hover:bg-blue-50"
+            >
+              <PlusCircle className="h-3.5 w-3.5" /> Next term
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -201,6 +243,10 @@ export function TermGridView({ termId }: { termId: number }) {
           </button>
         </div>
       </div>
+
+      {createTermError && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{createTermError}</div>
+      )}
 
       <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
         <table className="text-sm">
@@ -276,6 +322,21 @@ export function TermGridView({ termId }: { termId: number }) {
           term={term}
           onClose={() => setCreateOpen(false)}
           onCreated={() => { setCreateOpen(false); reloadGrid() }}
+        />
+      )}
+      {createTermOpen && (
+        <CreateTermModal
+          onClose={() => setCreateTermOpen(false)}
+          onCreated={async () => {
+            setCreateTermOpen(false)
+            // The new term is now the last in the ordered list — refresh and jump to it.
+            const rows: { id: number; startDate: string; name: string }[] = await fetch('/api/terms')
+              .then(r => r.ok ? r.json() : [])
+            rows.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
+            const latest = rows.length > 0 ? rows[rows.length - 1] : null
+            if (latest) router.push(`/terms/${latest.id}`)
+          }}
+          onError={setCreateTermError}
         />
       )}
       {modal?.kind === 'class' && (

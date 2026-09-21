@@ -110,7 +110,7 @@ interface ClassOption {
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-function CreateTermModal({ onClose, onCreated, onError }: {
+export function CreateTermModal({ onClose, onCreated, onError }: {
   onClose: () => void
   onCreated: () => void
   onError: (msg: string) => void
