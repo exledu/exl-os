@@ -1,8 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, X, ExternalLink, User, MapPin, Users, CalendarClock, Ban, Trash2, Archive, Pencil, Plus } from 'lucide-react'
+import { ArrowLeft, X, User, MapPin, Users, CalendarClock, Ban, Trash2, Archive, Pencil, Plus } from 'lucide-react'
+
+// ── Types ────────────────────────────────────────────────────────────────
 
 interface Cell {
   id:         number
@@ -26,12 +28,9 @@ interface Row {
   cells:     (Cell | null)[]
 }
 interface TermData {
-  term: {
-    id: number; name: string; year: number; termNumber: number; startDate: string; weeks: number
-  }
+  term: { id: number; name: string; year: number; termNumber: number; startDate: string; weeks: number }
   grid: Row[]
 }
-
 interface ClassDetail {
   id: number
   subject:   { name: string }
@@ -45,7 +44,6 @@ interface ClassDetail {
   endTime:   string | null
   enrolments: { student: { id: number; name: string; lastName: string | null } }[]
 }
-
 interface SessionDetail {
   id: number
   date: string
@@ -77,7 +75,14 @@ interface SessionDetail {
   trials: { student: { id: number; name: string; lastName: string | null } }[]
 }
 
+interface StaffOpt { id: number; name: string }
+interface RoomOpt  { id: number; name: string }
+
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const HOMEWORK_CYCLE = ['UNATTEMPTED', 'INCOMPLETE', 'SATISFACTORY', 'EXCELLENT'] as const
+type HomeworkStatus = typeof HOMEWORK_CYCLE[number]
+
+// ── Helpers ──────────────────────────────────────────────────────────────
 
 function fmtDay(iso: string) {
   return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
@@ -86,21 +91,21 @@ function fmtDateLong(iso: string) {
   return new Date(iso).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 }
 
+// ── Main view ────────────────────────────────────────────────────────────
+
 export function TermGridView({ termId }: { termId: number }) {
   const [data, setData]       = useState<TermData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [modal, setModal] = useState<
+    | { kind: 'class';   id: number }
+    | { kind: 'session'; id: number }
+    | null
+  >(null)
+  const [tick, setTick] = useState(0)
+  const reload = () => setTick(t => t + 1)
 
-  const [selectedClassId, setSelectedClassId]     = useState<number | null>(null)
-  const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null)
-  const [classDetail, setClassDetail]     = useState<ClassDetail | null>(null)
-  const [sessionDetail, setSessionDetail] = useState<SessionDetail | null>(null)
-  const [tick, setTick]                   = useState(0)  // bump to refetch everything
-
-  // Lookup data for popovers — fetched once, passed down.
   const [lookups, setLookups] = useState<{
-    staff:      { id: number; name: string }[]
-    rooms:      { id: number; name: string }[]
-    yearLevels: { id: number; level: number }[]
+    staff: StaffOpt[]; rooms: RoomOpt[]; yearLevels: { id: number; level: number }[]
   } | null>(null)
   useEffect(() => {
     (async () => {
@@ -113,8 +118,6 @@ export function TermGridView({ termId }: { termId: number }) {
     })()
   }, [])
 
-  const reloadGrid = () => setTick(t => t + 1)
-
   useEffect(() => {
     (async () => {
       setLoading(true)
@@ -125,31 +128,10 @@ export function TermGridView({ termId }: { termId: number }) {
     })()
   }, [termId, tick])
 
-  useEffect(() => {
-    if (selectedClassId == null) { setClassDetail(null); return }
-    let cancelled = false
-    ;(async () => {
-      const res = await fetch(`/api/classes/${selectedClassId}`, { cache: 'no-store' })
-      if (!cancelled && res.ok) setClassDetail(await res.json())
-    })()
-    return () => { cancelled = true }
-  }, [selectedClassId, tick])
-
-  useEffect(() => {
-    if (selectedSessionId == null) { setSessionDetail(null); return }
-    let cancelled = false
-    ;(async () => {
-      const res = await fetch(`/api/sessions/${selectedSessionId}`, { cache: 'no-store' })
-      if (!cancelled && res.ok) setSessionDetail(await res.json())
-    })()
-    return () => { cancelled = true }
-  }, [selectedSessionId, tick])
-
   if (loading) return <div className="rounded-2xl border border-gray-200 bg-white p-8 text-sm text-gray-500">Loading…</div>
   if (!data)   return <div className="rounded-2xl border border-gray-200 bg-white p-8 text-sm text-gray-500">Term not found.</div>
 
   const { term, grid } = data
-  const hasSide = selectedClassId != null || selectedSessionId != null
 
   return (
     <div className="space-y-5">
@@ -172,310 +154,463 @@ export function TermGridView({ termId }: { termId: number }) {
         </Link>
       </div>
 
-      <div className="flex gap-4 items-start">
-        {/* Left pane — class card */}
-        {selectedClassId != null && (
-          <aside className="w-72 shrink-0">
-            <ClassCard
-              detail={classDetail}
-              lookups={lookups}
-              onClose={() => setSelectedClassId(null)}
-              onChanged={reloadGrid}
-            />
-          </aside>
-        )}
-
-        {/* Middle — grid (narrows when panels are open) */}
-        <div className={`${hasSide ? 'flex-1 min-w-0' : 'flex-1'}`}>
-          <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
-            <table className="text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 bg-gray-50 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  <th className="sticky left-0 z-20 bg-gray-50 px-3 py-2.5 min-w-[260px] whitespace-nowrap shadow-[2px_0_0_-1px_rgb(229_231_235)]">Class</th>
-                  {Array.from({ length: term.weeks }, (_, i) => (
-                    <th key={i} className="px-2 py-2.5 text-center min-w-[88px]">W{i + 1}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="text-gray-700">
-                {grid.map(row => {
-                  const selected = selectedClassId === row.classId
-                  // Fully opaque sticky bg so scrolled cells don't bleed through.
-                  const stickyBg = selected ? 'bg-blue-50' : 'bg-white'
+      <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <table className="text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+              <th className="sticky left-0 z-20 bg-gray-50 px-3 py-2.5 min-w-[260px] whitespace-nowrap shadow-[2px_0_0_-1px_rgb(229_231_235)]">Class</th>
+              {Array.from({ length: term.weeks }, (_, i) => (
+                <th key={i} className="px-2 py-2.5 text-center min-w-[88px]">W{i + 1}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="text-gray-700">
+            {grid.map(row => (
+              <tr key={row.classId} className="border-t border-gray-100">
+                <td className="sticky left-0 z-10 bg-white px-3 py-2 border-r border-gray-100 shadow-[2px_0_0_-1px_rgb(229_231_235)]">
+                  <button
+                    onClick={() => setModal({ kind: 'class', id: row.classId })}
+                    className="text-left font-medium text-sm text-[#002F67] hover:underline whitespace-nowrap"
+                  >
+                    Yr{row.yearLevel} {row.subject}
+                  </button>
+                  <div className="text-[11px] text-gray-500 whitespace-nowrap">
+                    {row.staff} · {row.dayOfWeek != null ? DAYS[row.dayOfWeek] : '?'} {row.startTime}–{row.endTime}
+                  </div>
+                </td>
+                {row.cells.map((cell, i) => {
+                  const effectiveStaff = cell?.staff?.name ?? row.staff
+                  const isCover = !!cell?.staff && cell.staff.name !== row.staff
                   return (
-                  <tr key={row.classId} className={`border-t border-gray-100 ${selected ? 'bg-blue-50' : ''}`}>
-                    <td className={`sticky left-0 z-10 ${stickyBg} px-3 py-2 border-r border-gray-100 shadow-[2px_0_0_-1px_rgb(229_231_235)]`}>
-                      <button
-                        onClick={() => setSelectedClassId(selected ? null : row.classId)}
-                        className="text-left font-medium text-sm text-[#002F67] hover:underline whitespace-nowrap"
-                      >
-                        Yr{row.yearLevel} {row.subject}
-                      </button>
-                      <div className="text-[11px] text-gray-500 whitespace-nowrap">
-                        {row.staff} · {row.dayOfWeek != null ? DAYS[row.dayOfWeek] : '?'} {row.startTime}–{row.endTime}
-                      </div>
+                    <td key={i} className="px-2 py-2 text-center border-l border-gray-100 first:border-l-0 align-top">
+                      {cell ? (
+                        <button
+                          onClick={() => setModal({ kind: 'session', id: cell.id })}
+                          className={`inline-flex flex-col items-center rounded px-1.5 py-1 leading-tight transition-colors ${
+                            cell.cancelled
+                              ? 'bg-gray-100 text-gray-400 line-through'
+                              : 'bg-blue-50 text-[#002F67] hover:bg-blue-100'
+                          }`}
+                          title={`Session #${cell.id}${cell.cancelled ? ' (cancelled)' : ''}${isCover ? ' — cover' : ''}`}
+                        >
+                          <span className="text-[11px] tabular-nums">{fmtDay(cell.date)}</span>
+                          <span className={`text-[10px] mt-0.5 ${
+                            cell.cancelled ? 'text-gray-400' : isCover ? 'text-amber-700 font-medium' : 'text-[#002F67]/60'
+                          }`}>
+                            {effectiveStaff.split(' ')[0]}
+                          </span>
+                        </button>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
                     </td>
-                    {row.cells.map((cell, i) => {
-                      const effectiveStaff = cell?.staff?.name ?? row.staff
-                      const isCover = !!cell?.staff && cell.staff.name !== row.staff
-                      const isSelected = cell?.id === selectedSessionId
-                      return (
-                        <td key={i} className="px-2 py-2 text-center border-l border-gray-100 first:border-l-0 align-top">
-                          {cell ? (
-                            <button
-                              onClick={() => setSelectedSessionId(isSelected ? null : cell.id)}
-                              className={`inline-flex flex-col items-center rounded px-1.5 py-1 leading-tight transition-colors ${
-                                isSelected
-                                  ? 'ring-2 ring-[#002F67] ring-offset-1 bg-blue-100 text-[#002F67]'
-                                  : cell.cancelled
-                                    ? 'bg-gray-100 text-gray-400 line-through'
-                                    : 'bg-blue-50 text-[#002F67] hover:bg-blue-100'
-                              }`}
-                              title={`Session #${cell.id}${cell.cancelled ? ' (cancelled)' : ''}${isCover ? ' — cover' : ''}`}
-                            >
-                              <span className="text-[11px] tabular-nums">{fmtDay(cell.date)}</span>
-                              <span className={`text-[10px] mt-0.5 ${
-                                cell.cancelled ? 'text-gray-400' : isCover ? 'text-amber-700 font-medium' : 'text-[#002F67]/60'
-                              }`}>
-                                {effectiveStaff.split(' ')[0]}
-                              </span>
-                            </button>
-                          ) : (
-                            <span className="text-gray-300">—</span>
-                          )}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                )})}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Right pane — session card */}
-        {selectedSessionId != null && (
-          <aside className="w-80 shrink-0">
-            <SessionCard
-              detail={sessionDetail}
-              staffOpts={lookups?.staff ?? []}
-              onClose={() => setSelectedSessionId(null)}
-              onChanged={reloadGrid}
-              onDeleted={() => { setSelectedSessionId(null); reloadGrid() }}
-            />
-          </aside>
-        )}
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       <p className="text-[11px] text-gray-500">
-        Click a class name to open its info on the left. Click a session cell to open its details on the right.
-        Both can be open at once.
+        Click a class name to open its info. Click a session cell to open its details.
       </p>
-    </div>
-  )
-}
 
-// ── Class card ────────────────────────────────────────────────────────────
-
-function ClassCard({ detail, lookups, onClose, onChanged }: {
-  detail: ClassDetail | null
-  lookups: { staff: StaffOpt[]; rooms: { id: number; name: string }[]; yearLevels: { id: number; level: number }[] } | null
-  onClose: () => void
-  onChanged: () => void
-}) {
-  const [busy, setBusy] = useState(false)
-  const [openEditor, setOpenEditor] = useState<null | 'staff' | 'schedule' | 'room' | 'capacity'>(null)
-
-  // Reset any open popover when the selected class changes.
-  useEffect(() => { setOpenEditor(null) }, [detail?.id])
-
-  async function patch(body: Record<string, unknown>) {
-    if (!detail) return
-    setBusy(true)
-    try {
-      const res = await fetch(`/api/classes/${detail.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (res.ok) { setOpenEditor(null); onChanged() }
-      else alert('Failed to save')
-    } finally { setBusy(false) }
-  }
-
-  async function removeStudent(studentId: number) {
-    if (!detail) return
-    if (!confirm('Remove this student from the class? Their attendance history is kept.')) return
-    setBusy(true)
-    try {
-      const res = await fetch(`/api/classes/${detail.id}/enrolments`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId }),
-      })
-      if (res.ok) onChanged()
-    } finally { setBusy(false) }
-  }
-
-  async function archive() {
-    if (!detail) return
-    if (!confirm(`Archive Yr${detail.yearLevel.level} ${detail.subject.name}? Sessions after today will be hidden from schedules.`)) return
-    const res = await fetch(`/api/classes/${detail.id}/archive`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ archived: true }),
-    })
-    if (res.ok) { onClose(); onChanged() }
-    else alert('Archive failed')
-  }
-
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden sticky top-4">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Class</span>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      {!detail ? (
-        <div className="p-4 text-xs text-gray-400">Loading…</div>
-      ) : (
-        <div className="p-4 space-y-3">
-          <div className="text-lg font-semibold text-[#002F67]">
-            Yr{detail.yearLevel.level} {detail.subject.name}
-          </div>
-
-          <div className="space-y-1.5 text-sm relative">
-            <EditableLine
-              icon={User} label="Tutor" value={detail.staff.name}
-              isOpen={openEditor === 'staff'}
-              onEdit={() => setOpenEditor(openEditor === 'staff' ? null : 'staff')}
-              popover={
-                <StaffPopover
-                  options={lookups?.staff ?? []}
-                  defaultStaffId={detail.staff.id}
-                  currentStaffId={detail.staff.id}
-                  onCancel={() => setOpenEditor(null)}
-                  onSave={s => patch({ staffId: s ?? detail.staff.id })}
-                  saving={busy}
-                />
-              }
-            />
-            {detail.isRecurring && detail.dayOfWeek != null && (
-              <EditableLine
-                icon={CalendarClock} label="Schedule"
-                value={`${DAYS[detail.dayOfWeek]} ${detail.startTime}–${detail.endTime}`}
-                isOpen={openEditor === 'schedule'}
-                onEdit={() => setOpenEditor(openEditor === 'schedule' ? null : 'schedule')}
-                popover={
-                  <ClassSchedulePopover
-                    initialDay={detail.dayOfWeek}
-                    initialStart={detail.startTime ?? '16:00'}
-                    onCancel={() => setOpenEditor(null)}
-                    onSave={(dow, start) => patch({ dayOfWeek: dow, startTime: start })}
-                    saving={busy}
-                  />
-                }
-              />
-            )}
-            <EditableLine
-              icon={MapPin} label="Room" value={detail.room?.name ?? '—'}
-              isOpen={openEditor === 'room'}
-              onEdit={() => setOpenEditor(openEditor === 'room' ? null : 'room')}
-              popover={
-                <RoomPopover
-                  options={lookups?.rooms ?? []}
-                  currentRoomId={detail.room?.id ?? null}
-                  onCancel={() => setOpenEditor(null)}
-                  onSave={r => patch({ roomId: r })}
-                  saving={busy}
-                />
-              }
-            />
-            <EditableLine
-              icon={Users} label="Enrolments"
-              value={`${detail.enrolments.length} of ${detail.maxCapacity}`}
-              isOpen={openEditor === 'capacity'}
-              onEdit={() => setOpenEditor(openEditor === 'capacity' ? null : 'capacity')}
-              popover={
-                <CapacityPopover
-                  initial={detail.maxCapacity}
-                  onCancel={() => setOpenEditor(null)}
-                  onSave={c => patch({ maxCapacity: c })}
-                  saving={busy}
-                />
-              }
-            />
-          </div>
-
-          {/* Students */}
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Students</div>
-            {detail.enrolments.length === 0 ? (
-              <p className="text-xs text-gray-400 italic">No students enrolled.</p>
-            ) : (
-              <ul className="space-y-0.5 text-xs">
-                {detail.enrolments.map(e => (
-                  <li key={e.student.id} className="group flex items-center gap-1 text-gray-700">
-                    <span className="flex-1 truncate">
-                      {e.student.name}{e.student.lastName ? ` ${e.student.lastName}` : ''}
-                    </span>
-                    <button
-                      onClick={() => removeStudent(e.student.id)}
-                      disabled={busy}
-                      className="rounded p-0.5 text-gray-300 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-30"
-                      title="Remove from class"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {/* Action bar */}
-          <div className="pt-2 border-t border-gray-100 flex flex-wrap gap-2">
-            <button
-              onClick={archive}
-              disabled={busy}
-              className="ml-auto inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 disabled:opacity-50"
-            >
-              <Archive className="h-3 w-3" /> Archive
-            </button>
-          </div>
-        </div>
+      {modal?.kind === 'class' && (
+        <ClassModal
+          classId={modal.id}
+          lookups={lookups}
+          onClose={() => setModal(null)}
+          onChanged={reload}
+        />
+      )}
+      {modal?.kind === 'session' && (
+        <SessionModal
+          sessionId={modal.id}
+          staffOpts={lookups?.staff ?? []}
+          onClose={() => setModal(null)}
+          onChanged={reload}
+          onDeleted={() => { setModal(null); reload() }}
+        />
       )}
     </div>
   )
 }
 
-// ── Session card ──────────────────────────────────────────────────────────
+// ── Modal shell ──────────────────────────────────────────────────────────
+
+function ModalShell({ title, subtitle, onClose, children }: {
+  title:    string
+  subtitle?: string
+  onClose:  () => void
+  children: React.ReactNode
+}) {
+  // ESC to close
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 backdrop-blur-[1px] p-4 pt-16"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between px-5 pt-5 pb-3">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500">{title}</div>
+            {subtitle && <div className="text-xs text-gray-500 mt-0.5">{subtitle}</div>}
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="px-5 pb-5">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+// ── Class modal ──────────────────────────────────────────────────────────
+
+interface ClassDraft {
+  staffId: number
+  roomId: number | null
+  maxCapacity: number
+  dayOfWeek: number | null
+  startTime: string | null
+}
+
+function ClassModal({ classId, lookups, onClose, onChanged }: {
+  classId: number
+  lookups: { staff: StaffOpt[]; rooms: RoomOpt[]; yearLevels: { id: number; level: number }[] } | null
+  onClose: () => void
+  onChanged: () => void
+}) {
+  const [detail, setDetail] = useState<ClassDetail | null>(null)
+  const [mode, setMode] = useState<'view' | 'edit'>('view')
+  const [draft, setDraft] = useState<ClassDraft | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function load() {
+    const res = await fetch(`/api/classes/${classId}`, { cache: 'no-store' })
+    if (res.ok) setDetail(await res.json())
+  }
+  useEffect(() => { load() }, [classId])
+
+  function enterEdit() {
+    if (!detail) return
+    setDraft({
+      staffId:      detail.staff.id,
+      roomId:       detail.room?.id ?? null,
+      maxCapacity:  detail.maxCapacity,
+      dayOfWeek:    detail.dayOfWeek,
+      startTime:    detail.startTime,
+    })
+    setMode('edit')
+  }
+
+  async function save() {
+    if (!draft) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/classes/${classId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(draft),
+      })
+      if (res.ok) {
+        await load()
+        setMode('view')
+        onChanged()
+      } else {
+        alert('Failed to save')
+      }
+    } finally { setBusy(false) }
+  }
+
+  async function removeStudent(studentId: number) {
+    if (!confirm('Remove this student from the class? Their attendance history is kept.')) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/classes/${classId}/enrolments`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId }),
+      })
+      if (res.ok) { await load(); onChanged() }
+    } finally { setBusy(false) }
+  }
+
+  async function archive() {
+    if (!detail) return
+    if (!confirm(`Archive Yr${detail.yearLevel.level} ${detail.subject.name}? Sessions after today will be hidden.`)) return
+    const res = await fetch(`/api/classes/${classId}/archive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archived: true }),
+    })
+    if (res.ok) { onClose(); onChanged() }
+  }
+
+  return (
+    <ModalShell title={mode === 'edit' ? 'Edit class' : 'Class'} onClose={onClose}>
+      {!detail ? (
+        <div className="py-8 text-center text-xs text-gray-400">Loading…</div>
+      ) : (
+        <div className="space-y-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="text-xl font-semibold text-[#002F67]">
+              Yr{detail.yearLevel.level} {detail.subject.name}
+            </div>
+            {mode === 'view' && (
+              <button
+                onClick={enterEdit}
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <Pencil className="h-3 w-3" /> Edit
+              </button>
+            )}
+          </div>
+
+          <dl className="grid grid-cols-[100px_1fr] gap-x-3 gap-y-2 text-sm">
+            <FieldRow icon={User} label="Tutor">
+              {mode === 'edit' && draft && lookups ? (
+                <select
+                  value={draft.staffId}
+                  onChange={e => setDraft({ ...draft, staffId: Number(e.target.value) })}
+                  className="w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-sm"
+                >
+                  {lookups.staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              ) : (
+                <span className="text-gray-800">{detail.staff.name}</span>
+              )}
+            </FieldRow>
+
+            {detail.isRecurring && (
+              <FieldRow icon={CalendarClock} label="Schedule">
+                {mode === 'edit' && draft ? (
+                  <div className="flex gap-1.5">
+                    <select
+                      value={draft.dayOfWeek ?? 0}
+                      onChange={e => setDraft({ ...draft, dayOfWeek: Number(e.target.value) })}
+                      className="rounded-md border border-gray-200 bg-white px-2 py-1 text-sm"
+                    >
+                      {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                    </select>
+                    <input
+                      type="time"
+                      value={draft.startTime ?? ''}
+                      onChange={e => setDraft({ ...draft, startTime: e.target.value })}
+                      className="rounded-md border border-gray-200 px-2 py-1 text-sm"
+                    />
+                  </div>
+                ) : (
+                  <span className="text-gray-800 tabular-nums">
+                    {detail.dayOfWeek != null ? DAYS[detail.dayOfWeek] : '?'} {detail.startTime}–{detail.endTime}
+                  </span>
+                )}
+              </FieldRow>
+            )}
+
+            <FieldRow icon={MapPin} label="Room">
+              {mode === 'edit' && draft && lookups ? (
+                <select
+                  value={draft.roomId ?? ''}
+                  onChange={e => setDraft({ ...draft, roomId: e.target.value ? Number(e.target.value) : null })}
+                  className="w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-sm"
+                >
+                  <option value="">— none —</option>
+                  {lookups.rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              ) : (
+                <span className="text-gray-800">{detail.room?.name ?? '—'}</span>
+              )}
+            </FieldRow>
+
+            <FieldRow icon={Users} label="Capacity">
+              {mode === 'edit' && draft ? (
+                <input
+                  type="number"
+                  min={1} max={20}
+                  value={draft.maxCapacity}
+                  onChange={e => setDraft({ ...draft, maxCapacity: Number(e.target.value) })}
+                  className="w-20 rounded-md border border-gray-200 px-2 py-1 text-sm"
+                />
+              ) : (
+                <span className="text-gray-800">{detail.enrolments.length} of {detail.maxCapacity}</span>
+              )}
+            </FieldRow>
+          </dl>
+
+          {mode === 'view' && (
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1.5">
+                Students {detail.enrolments.length > 0 && `(${detail.enrolments.length})`}
+              </div>
+              {detail.enrolments.length === 0 ? (
+                <p className="text-xs text-gray-400 italic">No students enrolled.</p>
+              ) : (
+                <ul className="space-y-0.5">
+                  {detail.enrolments.map(e => (
+                    <li key={e.student.id} className="group flex items-center gap-1 text-sm">
+                      <span className="flex-1 truncate text-gray-700">
+                        {e.student.name}{e.student.lastName ? ` ${e.student.lastName}` : ''}
+                      </span>
+                      <button
+                        onClick={() => removeStudent(e.student.id)}
+                        disabled={busy}
+                        className="rounded p-1 text-gray-300 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-30"
+                        title="Remove from class"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          <div className="pt-3 border-t border-gray-100 flex justify-end gap-2">
+            {mode === 'edit' ? (
+              <>
+                <button
+                  onClick={() => setMode('view')}
+                  disabled={busy}
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={save}
+                  disabled={busy}
+                  className="rounded-lg bg-[#002F67] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
+                >
+                  {busy ? 'Saving…' : 'Save'}
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={archive}
+                disabled={busy}
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 disabled:opacity-50"
+              >
+                <Archive className="h-3 w-3" /> Archive
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </ModalShell>
+  )
+}
+
+// ── Session modal ────────────────────────────────────────────────────────
 
 interface PendingAttendance {
   present?:        boolean
   notifiedAbsent?: boolean
   homework?:       HomeworkStatus | null
 }
+interface SessionDraft {
+  date: string
+  startTime: string
+  staffId: number | null   // null = clear cover override → use class default
+}
 
-interface StaffOpt { id: number; name: string }
-
-function SessionCard({ detail, staffOpts, onClose, onChanged, onDeleted }: {
-  detail: SessionDetail | null
+function SessionModal({ sessionId, staffOpts, onClose, onChanged, onDeleted }: {
+  sessionId: number
   staffOpts: StaffOpt[]
   onClose: () => void
   onChanged: () => void
   onDeleted: () => void
 }) {
+  const [detail, setDetail] = useState<SessionDetail | null>(null)
+  const [mode, setMode] = useState<'view' | 'edit'>('view')
+  const [draft, setDraft] = useState<SessionDraft | null>(null)
   const [busy, setBusy] = useState(false)
   const [pending, setPending] = useState<Map<number, PendingAttendance>>(new Map())
-  const [openEditor, setOpenEditor] = useState<null | 'schedule' | 'staff'>(null)
 
-  // Reset pending changes when the selected session changes.
-  useEffect(() => {
-    setPending(new Map())
-    setOpenEditor(null)
-  }, [detail?.id])
+  async function load() {
+    const res = await fetch(`/api/sessions/${sessionId}`, { cache: 'no-store' })
+    if (res.ok) setDetail(await res.json())
+  }
+  useEffect(() => { load(); setPending(new Map()) }, [sessionId])
+
+  function enterEdit() {
+    if (!detail) return
+    setDraft({
+      date:      detail.date,
+      startTime: detail.startTime,
+      staffId:   detail.staffId,
+    })
+    setMode('edit')
+  }
+
+  async function saveEdit() {
+    if (!draft || !detail) return
+    setBusy(true)
+    try {
+      // If staff was set to the class default, PATCH staffId=null to clear the
+      // override. Otherwise stamp the picked cover.
+      const staffIdPatch = draft.staffId === detail.class.staff.id ? null : draft.staffId
+      const res = await fetch(`/api/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: draft.date, startTime: draft.startTime, staffId: staffIdPatch }),
+      })
+      if (res.ok) { await load(); setMode('view'); onChanged() }
+      else alert('Failed to save')
+    } finally { setBusy(false) }
+  }
+
+  async function saveAttendance() {
+    if (!detail || pending.size === 0) return
+    setBusy(true)
+    try {
+      const updates = Array.from(pending.entries()).map(([studentId, u]) => ({ studentId, ...u }))
+      const res = await fetch(`/api/sessions/${sessionId}/attendance/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
+      })
+      if (res.ok) { setPending(new Map()); await load(); onChanged() }
+      else alert('Failed to save attendance')
+    } finally { setBusy(false) }
+  }
+
+  async function toggleCancel() {
+    if (!detail) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cancelled: !detail.cancelled }),
+      })
+      if (res.ok) { await load(); onChanged() }
+    } finally { setBusy(false) }
+  }
+
+  async function deleteSession() {
+    if (!detail) return
+    if (!confirm(`Delete session on ${fmtDateLong(detail.date)}? Attendance for this session will be removed too.`)) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' })
+      if (res.ok) onDeleted()
+    } finally { setBusy(false) }
+  }
 
   function pendPatch(studentId: number, patch: PendingAttendance) {
     setPending(prev => {
@@ -485,162 +620,103 @@ function SessionCard({ detail, staffOpts, onClose, onChanged, onDeleted }: {
     })
   }
 
-  async function saveBatch() {
-    if (!detail || pending.size === 0) return
-    setBusy(true)
-    try {
-      const updates = Array.from(pending.entries()).map(([studentId, u]) => ({ studentId, ...u }))
-      const res = await fetch(`/api/sessions/${detail.id}/attendance/batch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates }),
-      })
-      if (res.ok) {
-        setPending(new Map())
-        onChanged()
-      } else {
-        alert('Failed to save attendance')
-      }
-    } finally { setBusy(false) }
-  }
-
-  async function toggleCancel() {
-    if (!detail) return
-    setBusy(true)
-    try {
-      const res = await fetch(`/api/sessions/${detail.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cancelled: !detail.cancelled }),
-      })
-      if (res.ok) onChanged()
-    } finally { setBusy(false) }
-  }
-
-  async function deleteSession() {
-    if (!detail) return
-    if (!confirm(`Delete session on ${fmtDateLong(detail.date)}? Attendance for this session will also be removed.`)) return
-    setBusy(true)
-    try {
-      const res = await fetch(`/api/sessions/${detail.id}`, { method: 'DELETE' })
-      if (res.ok) onDeleted()
-      else alert('Failed to delete session')
-    } finally { setBusy(false) }
-  }
-
-  async function saveSchedule(date: string, startTime: string) {
-    if (!detail) return
-    setBusy(true)
-    try {
-      const res = await fetch(`/api/sessions/${detail.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, startTime }),
-      })
-      if (res.ok) { setOpenEditor(null); onChanged() }
-      else alert('Failed to save schedule')
-    } finally { setBusy(false) }
-  }
-
-  async function saveStaff(staffId: number | null) {
-    if (!detail) return
-    setBusy(true)
-    try {
-      const res = await fetch(`/api/sessions/${detail.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ staffId }),
-      })
-      if (res.ok) { setOpenEditor(null); onChanged() }
-      else alert('Failed to save staff')
-    } finally { setBusy(false) }
-  }
+  const dateLine = detail ? `${detail.term?.name ?? 'No term'} · Session #${detail.id}` : undefined
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden sticky top-4">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Session</span>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
+    <ModalShell
+      title={mode === 'edit' ? 'Edit session' : 'Session'}
+      subtitle={dateLine}
+      onClose={onClose}
+    >
       {!detail ? (
-        <div className="p-4 text-xs text-gray-400">Loading…</div>
+        <div className="py-8 text-center text-xs text-gray-400">Loading…</div>
       ) : (
-        <div className="p-4 space-y-3">
-          <div>
-            <div className="text-lg font-semibold text-[#002F67]">
+        <div className="space-y-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="text-xl font-semibold text-[#002F67]">
               Yr{detail.yearLevel?.level ?? detail.class.yearLevel.level} {detail.class.subject.name}
             </div>
-            <div className="text-xs text-gray-500 mt-0.5">
-              {detail.term?.name ?? 'No term'} · Session #{detail.id}
-            </div>
+            {mode === 'view' && (
+              <button
+                onClick={enterEdit}
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <Pencil className="h-3 w-3" /> Edit
+              </button>
+            )}
           </div>
 
           {detail.cancelled && (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800 font-medium">
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 font-medium">
               This session is cancelled
             </div>
           )}
 
-          <div className="space-y-1.5 text-sm relative">
-            <EditableLine
-              icon={CalendarClock} label="When"
-              value={
-                <span>
-                  <div>{fmtDateLong(detail.date)}</div>
+          <dl className="grid grid-cols-[100px_1fr] gap-x-3 gap-y-2 text-sm">
+            <FieldRow icon={CalendarClock} label="When">
+              {mode === 'edit' && draft ? (
+                <div className="flex gap-1.5">
+                  <input
+                    type="date"
+                    value={draft.date}
+                    onChange={e => setDraft({ ...draft, date: e.target.value })}
+                    className="rounded-md border border-gray-200 px-2 py-1 text-sm"
+                  />
+                  <input
+                    type="time"
+                    value={draft.startTime}
+                    onChange={e => setDraft({ ...draft, startTime: e.target.value })}
+                    className="rounded-md border border-gray-200 px-2 py-1 text-sm"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <div className="text-gray-800">{fmtDateLong(detail.date)}</div>
                   <div className="text-xs text-gray-500 tabular-nums">{detail.startTime}–{detail.endTime}</div>
-                </span>
-              }
-              onEdit={() => setOpenEditor(openEditor === 'schedule' ? null : 'schedule')}
-              isOpen={openEditor === 'schedule'}
-              popover={
-                <SchedulePopover
-                  initialDate={detail.date}
-                  initialStart={detail.startTime}
-                  onCancel={() => setOpenEditor(null)}
-                  onSave={saveSchedule}
-                  saving={busy}
-                />
-              }
-            />
-            {detail.originalDate && detail.originalDate !== detail.date && (
-              <Line icon={CalendarClock} label="Rescheduled from"
-                value={<span className="text-amber-700">{fmtDateLong(detail.originalDate)}</span>} />
-            )}
-            <EditableLine
-              icon={User} label={detail.staff ? 'Cover' : 'Tutor'}
-              value={
-                <span>
+                  {detail.originalDate && detail.originalDate !== detail.date && (
+                    <div className="text-[11px] text-amber-700 mt-0.5">
+                      Rescheduled from {fmtDateLong(detail.originalDate)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </FieldRow>
+
+            <FieldRow icon={User} label={detail.staffId && detail.staffId !== detail.class.staff.id ? 'Cover' : 'Tutor'}>
+              {mode === 'edit' && draft ? (
+                <select
+                  value={draft.staffId ?? detail.class.staff.id}
+                  onChange={e => setDraft({ ...draft, staffId: Number(e.target.value) })}
+                  className="w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-sm"
+                >
+                  {staffOpts.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}{s.id === detail.class.staff.id ? ' (default)' : ''}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-gray-800">
                   {detail.staff?.name ?? detail.class.staff.name}
                   {detail.staff && detail.staff.id !== detail.class.staff.id && (
-                    <span className="ml-1 text-[10px] font-semibold uppercase text-amber-700">cover</span>
+                    <span className="ml-1.5 text-[10px] font-semibold uppercase text-amber-700">cover</span>
                   )}
                 </span>
-              }
-              onEdit={() => setOpenEditor(openEditor === 'staff' ? null : 'staff')}
-              isOpen={openEditor === 'staff'}
-              popover={
-                <StaffPopover
-                  options={staffOpts}
-                  defaultStaffId={detail.class.staff.id}
-                  currentStaffId={detail.staffId ?? null}
-                  onCancel={() => setOpenEditor(null)}
-                  onSave={saveStaff}
-                  saving={busy}
-                />
-              }
-            />
-            {detail.class.room && (
-              <Line icon={MapPin} label="Room" value={detail.class.room.name} />
+              )}
+            </FieldRow>
+
+            {mode === 'view' && detail.class.room && (
+              <FieldRow icon={MapPin} label="Room">
+                <span className="text-gray-800">{detail.class.room.name}</span>
+              </FieldRow>
             )}
-            <Line icon={Users} label="Enrolments" value={String(detail.class._count.enrolments)} />
-          </div>
+          </dl>
 
-          <RosterSection detail={detail} pending={pending} onPending={pendPatch} />
+          {mode === 'view' && (
+            <RosterSection detail={detail} pending={pending} onPending={pendPatch} />
+          )}
 
-          {/* Save/Discard when there are pending attendance changes */}
-          {pending.size > 0 && (
+          {mode === 'view' && pending.size > 0 && (
             <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
               <span className="text-amber-800 font-medium">
                 {pending.size} unsaved change{pending.size === 1 ? '' : 's'}
@@ -654,309 +730,60 @@ function SessionCard({ detail, staffOpts, onClose, onChanged, onDeleted }: {
                   Discard
                 </button>
                 <button
-                  onClick={saveBatch}
+                  onClick={saveAttendance}
                   disabled={busy}
                   className="rounded-md bg-[#002F67] px-2 py-1 text-[11px] font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
                 >
-                  {busy ? 'Saving…' : 'Save'}
+                  {busy ? 'Saving…' : 'Save attendance'}
                 </button>
               </div>
             </div>
           )}
 
-          {/* Action bar */}
-          <div className="pt-2 border-t border-gray-100 flex flex-wrap gap-2">
-            <button
-              onClick={toggleCancel}
-              disabled={busy}
-              className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-            >
-              <Ban className="h-3 w-3" /> {detail.cancelled ? 'Un-cancel' : 'Cancel'}
-            </button>
-            <button
-              onClick={deleteSession}
-              disabled={busy}
-              className="ml-auto inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 disabled:opacity-50"
-            >
-              <Trash2 className="h-3 w-3" /> Delete
-            </button>
+          <div className="pt-3 border-t border-gray-100 flex flex-wrap gap-2 justify-end">
+            {mode === 'edit' ? (
+              <>
+                <button
+                  onClick={() => setMode('view')}
+                  disabled={busy}
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveEdit}
+                  disabled={busy}
+                  className="rounded-lg bg-[#002F67] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
+                >
+                  {busy ? 'Saving…' : 'Save'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={toggleCancel}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <Ban className="h-3 w-3" /> {detail.cancelled ? 'Un-cancel' : 'Cancel session'}
+                </button>
+                <button
+                  onClick={deleteSession}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 disabled:opacity-50"
+                >
+                  <Trash2 className="h-3 w-3" /> Delete
+                </button>
+              </>
+            )}
           </div>
-
-          {detail.parentEmailsSentAt && (
-            <div className="text-[11px] text-gray-500">
-              Parent emails sent {new Date(detail.parentEmailsSentAt).toLocaleString('en-AU')}
-            </div>
-          )}
-
-          <Link href={`/classes/${detail.class.id}`} className="inline-flex items-center gap-0.5 text-[11px] text-gray-500 hover:text-[#002F67]">
-            Open class page <ExternalLink className="h-2.5 w-2.5" />
-          </Link>
         </div>
       )}
-    </div>
+    </ModalShell>
   )
 }
 
-function EditableLine({ icon: Icon, label, value, onEdit, isOpen, popover }: {
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  value: React.ReactNode
-  onEdit: () => void
-  isOpen: boolean
-  popover: React.ReactNode
-}) {
-  return (
-    <div className="flex items-start gap-2 relative group">
-      <Icon className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">{label}</div>
-          <button
-            onClick={onEdit}
-            className={`rounded p-0.5 transition-colors ${
-              isOpen ? 'text-[#002F67] bg-blue-50' : 'text-gray-400 hover:text-[#002F67] hover:bg-blue-50'
-            }`}
-          >
-            <Pencil className="h-2.5 w-2.5" />
-          </button>
-        </div>
-        <div className="text-gray-800">{value}</div>
-      </div>
-      {isOpen && (
-        <div className="absolute left-6 top-full mt-1.5 z-30 rounded-lg border border-gray-200 bg-white shadow-lg p-3 min-w-[220px]">
-          {popover}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function SchedulePopover({ initialDate, initialStart, onSave, onCancel, saving }: {
-  initialDate: string
-  initialStart: string
-  onSave: (date: string, startTime: string) => void
-  onCancel: () => void
-  saving: boolean
-}) {
-  const [date, setDate]   = useState(initialDate)
-  const [start, setStart] = useState(initialStart)
-  return (
-    <div className="space-y-2">
-      <label className="block">
-        <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Date</div>
-        <input
-          type="date"
-          value={date}
-          onChange={e => setDate(e.target.value)}
-          className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs"
-        />
-      </label>
-      <label className="block">
-        <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Start time</div>
-        <input
-          type="time"
-          value={start}
-          onChange={e => setStart(e.target.value)}
-          className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs"
-        />
-        <p className="mt-1 text-[10px] text-gray-400">End time is auto-derived from year duration.</p>
-      </label>
-      <div className="flex justify-end gap-1.5 pt-1">
-        <button type="button" onClick={onCancel} className="rounded-md px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700">Cancel</button>
-        <button
-          type="button"
-          onClick={() => onSave(date, start)}
-          disabled={saving}
-          className="rounded-md bg-[#002F67] px-2 py-1 text-[11px] font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function StaffPopover({ options, defaultStaffId, currentStaffId, onSave, onCancel, saving }: {
-  options: StaffOpt[]
-  defaultStaffId: number
-  currentStaffId: number | null
-  onSave: (staffId: number | null) => void
-  onCancel: () => void
-  saving: boolean
-}) {
-  // currentStaffId=null means "use class default"
-  const [selected, setSelected] = useState<number>(currentStaffId ?? defaultStaffId)
-
-  function submit() {
-    // If they picked the default, send null to clear the override.
-    onSave(selected === defaultStaffId ? null : selected)
-  }
-  return (
-    <div className="space-y-2 min-w-[200px]">
-      <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Assigned staff</div>
-      <select
-        value={selected}
-        onChange={e => setSelected(Number(e.target.value))}
-        className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs bg-white"
-      >
-        {options.map(o => (
-          <option key={o.id} value={o.id}>
-            {o.name}{o.id === defaultStaffId ? ' (default)' : ''}
-          </option>
-        ))}
-      </select>
-      <p className="text-[10px] text-gray-400">
-        Choosing the default clears any cover override on this session.
-      </p>
-      <div className="flex justify-end gap-1.5">
-        <button type="button" onClick={onCancel} className="rounded-md px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700">Cancel</button>
-        <button
-          type="button"
-          onClick={submit}
-          disabled={saving}
-          className="rounded-md bg-[#002F67] px-2 py-1 text-[11px] font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function ClassSchedulePopover({ initialDay, initialStart, onSave, onCancel, saving }: {
-  initialDay: number
-  initialStart: string
-  onSave: (dow: number, startTime: string) => void
-  onCancel: () => void
-  saving: boolean
-}) {
-  const [day, setDay]     = useState(initialDay)
-  const [start, setStart] = useState(initialStart)
-  return (
-    <div className="space-y-2 min-w-[200px]">
-      <label className="block">
-        <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Day</div>
-        <select
-          value={day}
-          onChange={e => setDay(Number(e.target.value))}
-          className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs bg-white"
-        >
-          {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
-        </select>
-      </label>
-      <label className="block">
-        <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Start time</div>
-        <input
-          type="time"
-          value={start}
-          onChange={e => setStart(e.target.value)}
-          className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs"
-        />
-        <p className="mt-1 text-[10px] text-gray-400">
-          End time auto-derives from year duration. Future sessions reschedule to match.
-        </p>
-      </label>
-      <div className="flex justify-end gap-1.5">
-        <button type="button" onClick={onCancel} className="rounded-md px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700">Cancel</button>
-        <button
-          type="button"
-          onClick={() => onSave(day, start)}
-          disabled={saving}
-          className="rounded-md bg-[#002F67] px-2 py-1 text-[11px] font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function RoomPopover({ options, currentRoomId, onSave, onCancel, saving }: {
-  options: { id: number; name: string }[]
-  currentRoomId: number | null
-  onSave: (roomId: number | null) => void
-  onCancel: () => void
-  saving: boolean
-}) {
-  const [selected, setSelected] = useState<number | 'none'>(currentRoomId ?? 'none')
-  return (
-    <div className="space-y-2 min-w-[200px]">
-      <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Room</div>
-      <select
-        value={selected}
-        onChange={e => setSelected(e.target.value === 'none' ? 'none' : Number(e.target.value))}
-        className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs bg-white"
-      >
-        <option value="none">— none —</option>
-        {options.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-      </select>
-      <div className="flex justify-end gap-1.5">
-        <button type="button" onClick={onCancel} className="rounded-md px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700">Cancel</button>
-        <button
-          type="button"
-          onClick={() => onSave(selected === 'none' ? null : selected)}
-          disabled={saving}
-          className="rounded-md bg-[#002F67] px-2 py-1 text-[11px] font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function CapacityPopover({ initial, onSave, onCancel, saving }: {
-  initial: number
-  onSave: (n: number) => void
-  onCancel: () => void
-  saving: boolean
-}) {
-  const [n, setN] = useState(initial)
-  return (
-    <div className="space-y-2 min-w-[180px]">
-      <label className="block">
-        <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Max capacity</div>
-        <input
-          type="number"
-          value={n}
-          onChange={e => setN(Number(e.target.value))}
-          min={1} max={20}
-          className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs"
-        />
-      </label>
-      <div className="flex justify-end gap-1.5">
-        <button type="button" onClick={onCancel} className="rounded-md px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700">Cancel</button>
-        <button
-          type="button"
-          onClick={() => onSave(n)}
-          disabled={saving || n < 1}
-          className="rounded-md bg-[#002F67] px-2 py-1 text-[11px] font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function Line({ icon: Icon, label, value }: {
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  value: React.ReactNode
-}) {
-  return (
-    <div className="flex items-start gap-2">
-      <Icon className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
-      <div className="min-w-0 flex-1">
-        <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">{label}</div>
-        <div className="text-gray-800">{value}</div>
-      </div>
-    </div>
-  )
-}
-
-const HOMEWORK_CYCLE = ['UNATTEMPTED', 'INCOMPLETE', 'SATISFACTORY', 'EXCELLENT'] as const
-type HomeworkStatus = typeof HOMEWORK_CYCLE[number]
+// ── Roster (still interactive in view mode) ──────────────────────────────
 
 function RosterSection({ detail, pending, onPending }: {
   detail:   SessionDetail
@@ -973,7 +800,6 @@ function RosterSection({ detail, pending, onPending }: {
 
   const byStudent = new Map(detail.attendances.map(a => [a.student.id, a]))
 
-  // Merge saved attendance with any local pending changes.
   function effectiveState(studentId: number) {
     const saved  = byStudent.get(studentId)
     const patch  = pending.get(studentId)
@@ -984,7 +810,6 @@ function RosterSection({ detail, pending, onPending }: {
     }
   }
 
-  // Effective present count for the "3/10" summary.
   let presentEff = 0
   let markedEff  = 0
   for (const s of roster) {
@@ -995,7 +820,6 @@ function RosterSection({ detail, pending, onPending }: {
   const anyMarked = markedEff > 0
 
   function nextPresenceState(cur: { present?: boolean; notifiedAbsent?: boolean }) {
-    // Cycle: unmarked → present → absent → notified-absent → present
     if (cur.present === undefined && !cur.notifiedAbsent) return { present: true,  notifiedAbsent: false }
     if (cur.present === true)                             return { present: false, notifiedAbsent: false }
     if (cur.present === false && !cur.notifiedAbsent)     return { present: false, notifiedAbsent: true }
@@ -1029,10 +853,7 @@ function RosterSection({ detail, pending, onPending }: {
           const name = s.lastName ? `${s.name} ${s.lastName}` : s.name
           return (
             <li key={s.id} className={`flex items-center gap-1.5 text-xs rounded px-1 -mx-1 ${isDirty ? 'bg-amber-50' : ''}`}>
-              <button
-                onClick={() => onPending(s.id, nextPresenceState(eff))}
-                title="Click to cycle Present → Absent → Notified absent"
-              >
+              <button onClick={() => onPending(s.id, nextPresenceState(eff))}>
                 {marked
                   ? <PresenceBadge present={eff.present === true} notified={!!eff.notifiedAbsent} />
                   : <UnmarkedBadge />}
@@ -1041,10 +862,7 @@ function RosterSection({ detail, pending, onPending }: {
               {s.trial && (
                 <span className="rounded bg-amber-50 border border-amber-200 px-1 py-0.5 text-[9px] font-semibold text-amber-700">TRIAL</span>
               )}
-              <button
-                onClick={() => onPending(s.id, { homework: nextHomework(eff.homework) })}
-                title="Click to cycle homework status"
-              >
+              <button onClick={() => onPending(s.id, { homework: nextHomework(eff.homework) })}>
                 {eff.homework
                   ? <HomeworkBadge status={eff.homework} />
                   : <span className="inline-flex rounded border border-dashed border-gray-300 text-[9px] text-gray-400 px-1 py-0.5">HW?</span>}
@@ -1060,29 +878,36 @@ function RosterSection({ detail, pending, onPending }: {
   )
 }
 
-function UnmarkedBadge() {
+// ── Small building blocks ────────────────────────────────────────────────
+
+function FieldRow({ icon: Icon, label, children }: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  children: React.ReactNode
+}) {
   return (
-    <span
-      className="inline-flex h-4 w-4 items-center justify-center rounded border border-dashed border-gray-300 text-[10px] text-gray-400"
-      title="Attendance not marked yet"
-    >·</span>
+    <>
+      <dt className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-gray-500 font-semibold pt-1">
+        <Icon className="h-3 w-3 text-gray-400" />
+        {label}
+      </dt>
+      <dd className="text-sm">{children}</dd>
+    </>
   )
 }
 
 function PresenceBadge({ present, notified }: { present: boolean; notified: boolean }) {
   if (present) {
-    return (
-      <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-emerald-100 text-emerald-700 text-[10px] font-bold" title="Present">Y</span>
-    )
+    return <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-emerald-100 text-emerald-700 text-[10px] font-bold" title="Present">Y</span>
   }
   if (notified) {
-    return (
-      <span className="inline-flex h-4 items-center justify-center rounded bg-amber-100 text-amber-700 text-[10px] font-bold px-1" title="Notified absent">N*</span>
-    )
+    return <span className="inline-flex h-4 items-center justify-center rounded bg-amber-100 text-amber-700 text-[10px] font-bold px-1" title="Notified absent">N*</span>
   }
-  return (
-    <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-rose-100 text-rose-700 text-[10px] font-bold" title="Absent">N</span>
-  )
+  return <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-rose-100 text-rose-700 text-[10px] font-bold" title="Absent">N</span>
+}
+
+function UnmarkedBadge() {
+  return <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-dashed border-gray-300 text-[10px] text-gray-400" title="Not marked">·</span>
 }
 
 const HOMEWORK_STYLES: Record<string, { label: string; cls: string }> = {
@@ -1095,10 +920,7 @@ const HOMEWORK_STYLES: Record<string, { label: string; cls: string }> = {
 function HomeworkBadge({ status }: { status: string }) {
   const s = HOMEWORK_STYLES[status] ?? { label: status, cls: 'bg-gray-100 text-gray-500' }
   return (
-    <span
-      className={`inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold tracking-wide ${s.cls}`}
-      title={`Homework: ${status.toLowerCase()}`}
-    >
+    <span className={`inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold tracking-wide ${s.cls}`} title={`Homework: ${status.toLowerCase()}`}>
       {s.label}
     </span>
   )
