@@ -217,9 +217,9 @@ export function TermGridView({ termId }: { termId: number }) {
             <button
               onClick={() => setCreateTermOpen(true)}
               title="Create next term"
-              className="inline-flex items-center gap-1 rounded-lg border border-dashed border-[#002F67] bg-white px-2 py-1.5 text-xs font-medium text-[#002F67] hover:bg-blue-50"
+              className="inline-flex items-center justify-center rounded-lg border border-dashed border-[#002F67] bg-white p-2 text-[#002F67] hover:bg-blue-50"
             >
-              <PlusCircle className="h-3.5 w-3.5" /> Next term
+              <Plus className="h-4 w-4" />
             </button>
           )}
         </div>
