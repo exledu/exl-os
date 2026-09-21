@@ -15,7 +15,9 @@ export async function GET(_req: Request, ctx: RouteContext<'/api/classes/[id]'>)
     },
   })
   if (!cls) return new Response('Not found', { status: 404 })
-  return Response.json(cls)
+  return Response.json(cls, {
+    headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' },
+  })
 }
 
 /**

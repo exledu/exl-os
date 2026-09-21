@@ -29,7 +29,9 @@ export async function GET() {
     }
   })
 
-  return Response.json(result)
+  return Response.json(result, {
+    headers: { 'Cache-Control': 'private, max-age=60, stale-while-revalidate=600' },
+  })
 }
 
 export async function POST(request: Request) {

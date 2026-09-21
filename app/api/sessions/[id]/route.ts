@@ -36,7 +36,9 @@ export async function GET(_req: Request, ctx: RouteContext<'/api/sessions/[id]'>
     },
   })
   if (!session) return new Response('Not found', { status: 404 })
-  return Response.json(session)
+  return Response.json(session, {
+    headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' },
+  })
 }
 
 export async function PATCH(request: Request, ctx: RouteContext<'/api/sessions/[id]'>) {

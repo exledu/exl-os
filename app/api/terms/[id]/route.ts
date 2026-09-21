@@ -64,5 +64,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     }
   })
 
-  return Response.json({ term, grid })
+  return Response.json({ term, grid }, {
+    headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=60' },
+  })
 }

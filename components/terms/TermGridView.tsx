@@ -101,8 +101,20 @@ export function TermGridView({ termId }: { termId: number }) {
     | { kind: 'session'; id: number }
     | null
   >(null)
-  const [tick, setTick] = useState(0)
-  const reload = () => setTick(t => t + 1)
+
+  // Split the invalidation counters. gridTick refetches the whole class×week
+  // matrix (only when structural changes happen — session cancel/delete, class
+  // schedule edits, archive). Attendance saves don't touch the grid, so we
+  // don't waste a fetch on them.
+  const [gridTick, setGridTick] = useState(0)
+  const reloadGrid = () => setGridTick(t => t + 1)
+
+  // Detail caches so reopening a modal is instant. We serve cached data
+  // immediately, then refetch in the background to freshen.
+  const [classCache,   setClassCache]   = useState<Map<number, ClassDetail>>(new Map())
+  const [sessionCache, setSessionCache] = useState<Map<number, SessionDetail>>(new Map())
+  const setClassCached   = (id: number, d: ClassDetail)   => setClassCache(prev   => new Map(prev).set(id, d))
+  const setSessionCached = (id: number, d: SessionDetail) => setSessionCache(prev => new Map(prev).set(id, d))
 
   const [lookups, setLookups] = useState<{
     staff: StaffOpt[]; rooms: RoomOpt[]; yearLevels: { id: number; level: number }[]
@@ -110,9 +122,9 @@ export function TermGridView({ termId }: { termId: number }) {
   useEffect(() => {
     (async () => {
       const [staff, rooms, yearLevels] = await Promise.all([
-        fetch('/api/staff', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
-        fetch('/api/rooms', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
-        fetch('/api/year-levels', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
+        fetch('/api/staff').then(r => r.ok ? r.json() : []),
+        fetch('/api/rooms').then(r => r.ok ? r.json() : []),
+        fetch('/api/year-levels').then(r => r.ok ? r.json() : []),
       ])
       setLookups({ staff, rooms, yearLevels })
     })()
@@ -120,13 +132,16 @@ export function TermGridView({ termId }: { termId: number }) {
 
   useEffect(() => {
     (async () => {
-      setLoading(true)
+      // Only show the "Loading…" spinner on the first load. Subsequent grid
+      // refreshes keep the stale data visible.
+      if (!data) setLoading(true)
       try {
-        const res = await fetch(`/api/terms/${termId}`, { cache: 'no-store' })
+        const res = await fetch(`/api/terms/${termId}`)
         if (res.ok) setData(await res.json())
       } finally { setLoading(false) }
     })()
-  }, [termId, tick])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [termId, gridTick])
 
   if (loading) return <div className="rounded-2xl border border-gray-200 bg-white p-8 text-sm text-gray-500">Loading…</div>
   if (!data)   return <div className="rounded-2xl border border-gray-200 bg-white p-8 text-sm text-gray-500">Term not found.</div>
@@ -219,18 +234,22 @@ export function TermGridView({ termId }: { termId: number }) {
       {modal?.kind === 'class' && (
         <ClassModal
           classId={modal.id}
+          cached={classCache.get(modal.id) ?? null}
+          onCache={setClassCached}
           lookups={lookups}
           onClose={() => setModal(null)}
-          onChanged={reload}
+          onChanged={reloadGrid}
         />
       )}
       {modal?.kind === 'session' && (
         <SessionModal
           sessionId={modal.id}
+          cached={sessionCache.get(modal.id) ?? null}
+          onCache={setSessionCached}
           staffOpts={lookups?.staff ?? []}
           onClose={() => setModal(null)}
-          onChanged={reload}
-          onDeleted={() => { setModal(null); reload() }}
+          onStructuralChange={reloadGrid}
+          onDeleted={() => { setModal(null); reloadGrid() }}
         />
       )}
     </div>
@@ -289,22 +308,29 @@ interface ClassDraft {
   startTime: string | null
 }
 
-function ClassModal({ classId, lookups, onClose, onChanged }: {
+function ClassModal({ classId, cached, onCache, lookups, onClose, onChanged }: {
   classId: number
+  cached: ClassDetail | null
+  onCache: (id: number, detail: ClassDetail) => void
   lookups: { staff: StaffOpt[]; rooms: RoomOpt[]; yearLevels: { id: number; level: number }[] } | null
   onClose: () => void
   onChanged: () => void
 }) {
-  const [detail, setDetail] = useState<ClassDetail | null>(null)
+  // Seed from cache so the modal renders instantly on reopen.
+  const [detail, setDetail] = useState<ClassDetail | null>(cached)
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [draft, setDraft] = useState<ClassDraft | null>(null)
   const [busy, setBusy] = useState(false)
 
   async function load() {
-    const res = await fetch(`/api/classes/${classId}`, { cache: 'no-store' })
-    if (res.ok) setDetail(await res.json())
+    const res = await fetch(`/api/classes/${classId}`)
+    if (res.ok) {
+      const d = await res.json() as ClassDetail
+      setDetail(d)
+      onCache(classId, d)
+    }
   }
-  useEffect(() => { load() }, [classId])
+  useEffect(() => { load() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [classId])
 
   function enterEdit() {
     if (!detail) return
@@ -528,24 +554,30 @@ interface SessionDraft {
   staffId: number | null   // null = clear cover override → use class default
 }
 
-function SessionModal({ sessionId, staffOpts, onClose, onChanged, onDeleted }: {
+function SessionModal({ sessionId, cached, onCache, staffOpts, onClose, onStructuralChange, onDeleted }: {
   sessionId: number
+  cached: SessionDetail | null
+  onCache: (id: number, detail: SessionDetail) => void
   staffOpts: StaffOpt[]
   onClose: () => void
-  onChanged: () => void
+  onStructuralChange: () => void   // fires only on cancel/edit/delete — not attendance
   onDeleted: () => void
 }) {
-  const [detail, setDetail] = useState<SessionDetail | null>(null)
+  const [detail, setDetail] = useState<SessionDetail | null>(cached)
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [draft, setDraft] = useState<SessionDraft | null>(null)
   const [busy, setBusy] = useState(false)
   const [pending, setPending] = useState<Map<number, PendingAttendance>>(new Map())
 
   async function load() {
-    const res = await fetch(`/api/sessions/${sessionId}`, { cache: 'no-store' })
-    if (res.ok) setDetail(await res.json())
+    const res = await fetch(`/api/sessions/${sessionId}`)
+    if (res.ok) {
+      const d = await res.json() as SessionDetail
+      setDetail(d)
+      onCache(sessionId, d)
+    }
   }
-  useEffect(() => { load(); setPending(new Map()) }, [sessionId])
+  useEffect(() => { load(); setPending(new Map()) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [sessionId])
 
   function enterEdit() {
     if (!detail) return
@@ -569,7 +601,7 @@ function SessionModal({ sessionId, staffOpts, onClose, onChanged, onDeleted }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date: draft.date, startTime: draft.startTime, staffId: staffIdPatch }),
       })
-      if (res.ok) { await load(); setMode('view'); onChanged() }
+      if (res.ok) { await load(); setMode('view'); onStructuralChange() }
       else alert('Failed to save')
     } finally { setBusy(false) }
   }
@@ -584,7 +616,8 @@ function SessionModal({ sessionId, staffOpts, onClose, onChanged, onDeleted }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ updates }),
       })
-      if (res.ok) { setPending(new Map()); await load(); onChanged() }
+      // Attendance changes never affect the grid — skip onStructuralChange.
+      if (res.ok) { setPending(new Map()); await load() }
       else alert('Failed to save attendance')
     } finally { setBusy(false) }
   }
@@ -598,7 +631,7 @@ function SessionModal({ sessionId, staffOpts, onClose, onChanged, onDeleted }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cancelled: !detail.cancelled }),
       })
-      if (res.ok) { await load(); onChanged() }
+      if (res.ok) { await load(); onStructuralChange() }
     } finally { setBusy(false) }
   }
 
