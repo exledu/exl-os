@@ -96,6 +96,23 @@ export function TermGridView({ termId }: { termId: number }) {
   const [sessionDetail, setSessionDetail] = useState<SessionDetail | null>(null)
   const [tick, setTick]                   = useState(0)  // bump to refetch everything
 
+  // Lookup data for popovers — fetched once, passed down.
+  const [lookups, setLookups] = useState<{
+    staff:      { id: number; name: string }[]
+    rooms:      { id: number; name: string }[]
+    yearLevels: { id: number; level: number }[]
+  } | null>(null)
+  useEffect(() => {
+    (async () => {
+      const [staff, rooms, yearLevels] = await Promise.all([
+        fetch('/api/staff', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
+        fetch('/api/rooms', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
+        fetch('/api/year-levels', { cache: 'no-store' }).then(r => r.ok ? r.json() : []),
+      ])
+      setLookups({ staff, rooms, yearLevels })
+    })()
+  }, [])
+
   const reloadGrid = () => setTick(t => t + 1)
 
   useEffect(() => {
@@ -161,6 +178,7 @@ export function TermGridView({ termId }: { termId: number }) {
           <aside className="w-72 shrink-0">
             <ClassCard
               detail={classDetail}
+              lookups={lookups}
               onClose={() => setSelectedClassId(null)}
               onChanged={reloadGrid}
             />
@@ -240,6 +258,7 @@ export function TermGridView({ termId }: { termId: number }) {
           <aside className="w-80 shrink-0">
             <SessionCard
               detail={sessionDetail}
+              staffOpts={lookups?.staff ?? []}
               onClose={() => setSelectedSessionId(null)}
               onChanged={reloadGrid}
               onDeleted={() => { setSelectedSessionId(null); reloadGrid() }}
@@ -258,17 +277,36 @@ export function TermGridView({ termId }: { termId: number }) {
 
 // ── Class card ────────────────────────────────────────────────────────────
 
-function ClassCard({ detail, onClose, onChanged }: {
+function ClassCard({ detail, lookups, onClose, onChanged }: {
   detail: ClassDetail | null
+  lookups: { staff: StaffOpt[]; rooms: { id: number; name: string }[]; yearLevels: { id: number; level: number }[] } | null
   onClose: () => void
   onChanged: () => void
 }) {
-  const [busy, setBusy] = useState<number | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [openEditor, setOpenEditor] = useState<null | 'staff' | 'schedule' | 'room' | 'capacity'>(null)
+
+  // Reset any open popover when the selected class changes.
+  useEffect(() => { setOpenEditor(null) }, [detail?.id])
+
+  async function patch(body: Record<string, unknown>) {
+    if (!detail) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/classes/${detail.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (res.ok) { setOpenEditor(null); onChanged() }
+      else alert('Failed to save')
+    } finally { setBusy(false) }
+  }
 
   async function removeStudent(studentId: number) {
     if (!detail) return
     if (!confirm('Remove this student from the class? Their attendance history is kept.')) return
-    setBusy(studentId)
+    setBusy(true)
     try {
       const res = await fetch(`/api/classes/${detail.id}/enrolments`, {
         method: 'DELETE',
@@ -276,7 +314,7 @@ function ClassCard({ detail, onClose, onChanged }: {
         body: JSON.stringify({ studentId }),
       })
       if (res.ok) onChanged()
-    } finally { setBusy(null) }
+    } finally { setBusy(false) }
   }
 
   async function archive() {
@@ -303,25 +341,74 @@ function ClassCard({ detail, onClose, onChanged }: {
         <div className="p-4 text-xs text-gray-400">Loading…</div>
       ) : (
         <div className="p-4 space-y-3">
-          <div>
-            <div className="text-lg font-semibold text-[#002F67]">
-              Yr{detail.yearLevel.level} {detail.subject.name}
-            </div>
+          <div className="text-lg font-semibold text-[#002F67]">
+            Yr{detail.yearLevel.level} {detail.subject.name}
           </div>
 
-          <div className="space-y-1.5 text-sm">
-            <Line icon={User}          label="Tutor"     value={detail.staff.name} />
+          <div className="space-y-1.5 text-sm relative">
+            <EditableLine
+              icon={User} label="Tutor" value={detail.staff.name}
+              isOpen={openEditor === 'staff'}
+              onEdit={() => setOpenEditor(openEditor === 'staff' ? null : 'staff')}
+              popover={
+                <StaffPopover
+                  options={lookups?.staff ?? []}
+                  defaultStaffId={detail.staff.id}
+                  currentStaffId={detail.staff.id}
+                  onCancel={() => setOpenEditor(null)}
+                  onSave={s => patch({ staffId: s ?? detail.staff.id })}
+                  saving={busy}
+                />
+              }
+            />
             {detail.isRecurring && detail.dayOfWeek != null && (
-              <Line icon={CalendarClock} label="Schedule"
-                value={`${DAYS[detail.dayOfWeek]} ${detail.startTime}–${detail.endTime}`} />
+              <EditableLine
+                icon={CalendarClock} label="Schedule"
+                value={`${DAYS[detail.dayOfWeek]} ${detail.startTime}–${detail.endTime}`}
+                isOpen={openEditor === 'schedule'}
+                onEdit={() => setOpenEditor(openEditor === 'schedule' ? null : 'schedule')}
+                popover={
+                  <ClassSchedulePopover
+                    initialDay={detail.dayOfWeek}
+                    initialStart={detail.startTime ?? '16:00'}
+                    onCancel={() => setOpenEditor(null)}
+                    onSave={(dow, start) => patch({ dayOfWeek: dow, startTime: start })}
+                    saving={busy}
+                  />
+                }
+              />
             )}
-            {detail.room && (
-              <Line icon={MapPin}       label="Room"      value={detail.room.name} />
-            )}
-            <Line icon={Users}          label="Enrolments" value={`${detail.enrolments.length} of ${detail.maxCapacity}`} />
+            <EditableLine
+              icon={MapPin} label="Room" value={detail.room?.name ?? '—'}
+              isOpen={openEditor === 'room'}
+              onEdit={() => setOpenEditor(openEditor === 'room' ? null : 'room')}
+              popover={
+                <RoomPopover
+                  options={lookups?.rooms ?? []}
+                  currentRoomId={detail.room?.id ?? null}
+                  onCancel={() => setOpenEditor(null)}
+                  onSave={r => patch({ roomId: r })}
+                  saving={busy}
+                />
+              }
+            />
+            <EditableLine
+              icon={Users} label="Enrolments"
+              value={`${detail.enrolments.length} of ${detail.maxCapacity}`}
+              isOpen={openEditor === 'capacity'}
+              onEdit={() => setOpenEditor(openEditor === 'capacity' ? null : 'capacity')}
+              popover={
+                <CapacityPopover
+                  initial={detail.maxCapacity}
+                  onCancel={() => setOpenEditor(null)}
+                  onSave={c => patch({ maxCapacity: c })}
+                  saving={busy}
+                />
+              }
+            />
           </div>
 
-          {/* Students with remove */}
+          {/* Students */}
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Students</div>
             {detail.enrolments.length === 0 ? (
@@ -335,8 +422,8 @@ function ClassCard({ detail, onClose, onChanged }: {
                     </span>
                     <button
                       onClick={() => removeStudent(e.student.id)}
-                      disabled={busy === e.student.id}
-                      className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-gray-300 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-30"
+                      disabled={busy}
+                      className="rounded p-0.5 text-gray-300 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-30"
                       title="Remove from class"
                     >
                       <X className="h-3 w-3" />
@@ -349,21 +436,10 @@ function ClassCard({ detail, onClose, onChanged }: {
 
           {/* Action bar */}
           <div className="pt-2 border-t border-gray-100 flex flex-wrap gap-2">
-            <Link
-              href={`/classes/${detail.id}/edit`}
-              className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <Pencil className="h-3 w-3" /> Edit
-            </Link>
-            <Link
-              href={`/classes/${detail.id}`}
-              className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <ExternalLink className="h-3 w-3" /> Full page
-            </Link>
             <button
               onClick={archive}
-              className="ml-auto inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200"
+              disabled={busy}
+              className="ml-auto inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 disabled:opacity-50"
             >
               <Archive className="h-3 w-3" /> Archive
             </button>
@@ -384,8 +460,9 @@ interface PendingAttendance {
 
 interface StaffOpt { id: number; name: string }
 
-function SessionCard({ detail, onClose, onChanged, onDeleted }: {
+function SessionCard({ detail, staffOpts, onClose, onChanged, onDeleted }: {
   detail: SessionDetail | null
+  staffOpts: StaffOpt[]
   onClose: () => void
   onChanged: () => void
   onDeleted: () => void
@@ -393,23 +470,12 @@ function SessionCard({ detail, onClose, onChanged, onDeleted }: {
   const [busy, setBusy] = useState(false)
   const [pending, setPending] = useState<Map<number, PendingAttendance>>(new Map())
   const [openEditor, setOpenEditor] = useState<null | 'schedule' | 'staff'>(null)
-  const [staffOpts, setStaffOpts] = useState<StaffOpt[]>([])
 
   // Reset pending changes when the selected session changes.
   useEffect(() => {
     setPending(new Map())
     setOpenEditor(null)
   }, [detail?.id])
-
-  // Prefetch staff for the tutor popover.
-  useEffect(() => {
-    if (staffOpts.length > 0) return
-    let cancelled = false
-    fetch('/api/staff', { cache: 'no-store' })
-      .then(r => r.ok ? r.json() : [])
-      .then((rows: StaffOpt[]) => { if (!cancelled) setStaffOpts(rows) })
-    return () => { cancelled = true }
-  }, [staffOpts.length])
 
   function pendPatch(studentId: number, patch: PendingAttendance) {
     setPending(prev => {
@@ -647,8 +713,8 @@ function EditableLine({ icon: Icon, label, value, onEdit, isOpen, popover }: {
           <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">{label}</div>
           <button
             onClick={onEdit}
-            className={`rounded p-0.5 text-gray-300 hover:text-[#002F67] hover:bg-blue-50 transition-all ${
-              isOpen ? 'text-[#002F67] bg-blue-50 opacity-100' : 'opacity-0 group-hover:opacity-100'
+            className={`rounded p-0.5 transition-colors ${
+              isOpen ? 'text-[#002F67] bg-blue-50' : 'text-gray-400 hover:text-[#002F67] hover:bg-blue-50'
             }`}
           >
             <Pencil className="h-2.5 w-2.5" />
@@ -748,6 +814,122 @@ function StaffPopover({ options, defaultStaffId, currentStaffId, onSave, onCance
           type="button"
           onClick={submit}
           disabled={saving}
+          className="rounded-md bg-[#002F67] px-2 py-1 text-[11px] font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ClassSchedulePopover({ initialDay, initialStart, onSave, onCancel, saving }: {
+  initialDay: number
+  initialStart: string
+  onSave: (dow: number, startTime: string) => void
+  onCancel: () => void
+  saving: boolean
+}) {
+  const [day, setDay]     = useState(initialDay)
+  const [start, setStart] = useState(initialStart)
+  return (
+    <div className="space-y-2 min-w-[200px]">
+      <label className="block">
+        <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Day</div>
+        <select
+          value={day}
+          onChange={e => setDay(Number(e.target.value))}
+          className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs bg-white"
+        >
+          {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+        </select>
+      </label>
+      <label className="block">
+        <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Start time</div>
+        <input
+          type="time"
+          value={start}
+          onChange={e => setStart(e.target.value)}
+          className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs"
+        />
+        <p className="mt-1 text-[10px] text-gray-400">
+          End time auto-derives from year duration. Future sessions reschedule to match.
+        </p>
+      </label>
+      <div className="flex justify-end gap-1.5">
+        <button type="button" onClick={onCancel} className="rounded-md px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700">Cancel</button>
+        <button
+          type="button"
+          onClick={() => onSave(day, start)}
+          disabled={saving}
+          className="rounded-md bg-[#002F67] px-2 py-1 text-[11px] font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function RoomPopover({ options, currentRoomId, onSave, onCancel, saving }: {
+  options: { id: number; name: string }[]
+  currentRoomId: number | null
+  onSave: (roomId: number | null) => void
+  onCancel: () => void
+  saving: boolean
+}) {
+  const [selected, setSelected] = useState<number | 'none'>(currentRoomId ?? 'none')
+  return (
+    <div className="space-y-2 min-w-[200px]">
+      <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Room</div>
+      <select
+        value={selected}
+        onChange={e => setSelected(e.target.value === 'none' ? 'none' : Number(e.target.value))}
+        className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs bg-white"
+      >
+        <option value="none">— none —</option>
+        {options.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+      </select>
+      <div className="flex justify-end gap-1.5">
+        <button type="button" onClick={onCancel} className="rounded-md px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700">Cancel</button>
+        <button
+          type="button"
+          onClick={() => onSave(selected === 'none' ? null : selected)}
+          disabled={saving}
+          className="rounded-md bg-[#002F67] px-2 py-1 text-[11px] font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function CapacityPopover({ initial, onSave, onCancel, saving }: {
+  initial: number
+  onSave: (n: number) => void
+  onCancel: () => void
+  saving: boolean
+}) {
+  const [n, setN] = useState(initial)
+  return (
+    <div className="space-y-2 min-w-[180px]">
+      <label className="block">
+        <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Max capacity</div>
+        <input
+          type="number"
+          value={n}
+          onChange={e => setN(Number(e.target.value))}
+          min={1} max={20}
+          className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs"
+        />
+      </label>
+      <div className="flex justify-end gap-1.5">
+        <button type="button" onClick={onCancel} className="rounded-md px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700">Cancel</button>
+        <button
+          type="button"
+          onClick={() => onSave(n)}
+          disabled={saving || n < 1}
           className="rounded-md bg-[#002F67] px-2 py-1 text-[11px] font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
         >
           {saving ? 'Saving…' : 'Save'}

@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db'
-import { initFirstTerm, rescheduleFutureSessions, createOneOffSession } from '@/lib/sessions'
+import { rescheduleFutureSessions, createOneOffSession } from '@/lib/sessions'
 import { computeEndTime } from '@/lib/class-duration'
 
 export async function GET(_req: Request, ctx: RouteContext<'/api/classes/[id]'>) {
@@ -18,44 +18,73 @@ export async function GET(_req: Request, ctx: RouteContext<'/api/classes/[id]'>)
   return Response.json(cls)
 }
 
+/**
+ * Partial update. Only fields present in the body are written. When startTime
+ * or yearLevelId change, endTime is re-derived from the duration rule. When
+ * scheduling fields change (dayOfWeek, startTime, yearLevelId), future
+ * sessions are auto-rescheduled to keep in sync.
+ */
 export async function PATCH(request: Request, ctx: RouteContext<'/api/classes/[id]'>) {
   const { id } = await ctx.params
-  const body = await request.json()
+  const classId = Number(id)
+  const body = await request.json() as {
+    subjectId?:       number
+    yearLevelId?:     number
+    staffId?:         number
+    roomId?:          number | null
+    maxCapacity?:     number
+    isRecurring?:     boolean
+    dayOfWeek?:       number | null
+    startTime?:       string | null
+    recurrenceStart?: string | null
+    sessionDate?:     string | null
+  }
 
-  const yl = await prisma.yearLevel.findUnique({ where: { id: Number(body.yearLevelId) } })
-  if (!yl) return Response.json({ error: 'Invalid yearLevelId' }, { status: 400 })
-  const derivedEndTime = body.startTime ? computeEndTime(body.startTime, yl.level) : null
+  const current = await prisma.class.findUnique({ where: { id: classId } })
+  if (!current) return new Response('Not found', { status: 404 })
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: any = {}
+  const schedFieldChanged =
+    body.startTime   !== undefined ||
+    body.dayOfWeek   !== undefined ||
+    body.yearLevelId !== undefined
+
+  if (body.subjectId   !== undefined) data.subjectId   = Number(body.subjectId)
+  if (body.yearLevelId !== undefined) data.yearLevelId = Number(body.yearLevelId)
+  if (body.staffId     !== undefined) data.staffId     = Number(body.staffId)
+  if (body.roomId      !== undefined) data.roomId      = body.roomId ? Number(body.roomId) : null
+  if (body.maxCapacity !== undefined) data.maxCapacity = Number(body.maxCapacity)
+  if (body.isRecurring !== undefined) data.isRecurring = body.isRecurring
+  if (body.dayOfWeek   !== undefined) data.dayOfWeek   = body.dayOfWeek === null ? null : Number(body.dayOfWeek)
+  if (body.startTime   !== undefined) data.startTime   = body.startTime
+  if (body.recurrenceStart !== undefined) data.recurrenceStart = body.recurrenceStart ? new Date(body.recurrenceStart) : null
+  if (body.sessionDate     !== undefined) data.sessionDate     = body.sessionDate     ? new Date(body.sessionDate)     : null
+
+  // Re-derive endTime whenever the inputs to the duration rule change.
+  if (schedFieldChanged) {
+    const effectiveStart = data.startTime   ?? current.startTime
+    const effectiveYLId  = data.yearLevelId ?? current.yearLevelId
+    if (effectiveStart) {
+      const yl = await prisma.yearLevel.findUnique({ where: { id: effectiveYLId } })
+      if (!yl) return Response.json({ error: 'Invalid yearLevelId' }, { status: 400 })
+      data.endTime = computeEndTime(effectiveStart, yl.level)
+    }
+  }
 
   const cls = await prisma.class.update({
-    where: { id: Number(id) },
-    data: {
-      subjectId: Number(body.subjectId),
-      yearLevelId: Number(body.yearLevelId),
-      staffId: Number(body.staffId),
-      roomId: body.roomId ? Number(body.roomId) : null,
-      maxCapacity: Number(body.maxCapacity),
-      isRecurring: body.isRecurring,
-      dayOfWeek: body.isRecurring ? Number(body.dayOfWeek) : null,
-      startTime: body.startTime ?? null,
-      endTime: derivedEndTime,
-      recurrenceStart: body.isRecurring && body.recurrenceStart ? new Date(body.recurrenceStart) : null,
-      sessionDate: !body.isRecurring && body.sessionDate ? new Date(body.sessionDate) : null,
-    },
+    where: { id: classId },
+    data,
     include: { subject: true, yearLevel: true, staff: true, room: true },
   })
 
-  if (body.isRecurring) {
-    // If this class has no sessions yet (e.g. just flipped from one-off → recurring),
-    // seed the first term. Otherwise just slide existing future sessions to the new
-    // day/time — never wipe terms.
-    const sessionCount = await prisma.classSession.count({ where: { classId: cls.id } })
-    if (sessionCount === 0 && cls.recurrenceStart) {
-      await initFirstTerm(cls.id, cls.recurrenceStart)
-    } else {
+  // Only propagate to sessions when scheduling actually changed.
+  if (schedFieldChanged) {
+    if (cls.isRecurring) {
       await rescheduleFutureSessions(cls.id)
+    } else if (body.sessionDate !== undefined || body.startTime !== undefined) {
+      await createOneOffSession(cls.id)
     }
-  } else {
-    await createOneOffSession(cls.id)
   }
 
   return Response.json(cls)
