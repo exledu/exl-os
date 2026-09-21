@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db'
 import { addDays, startOfDay } from 'date-fns'
+import { computeEndTime } from '@/lib/class-duration'
 
 /**
  * Term-driven session generation. A Term is a shared 10-week window that every
@@ -77,7 +78,7 @@ export async function seedTermForAllClasses(termId: number, classIds?: number[])
   const term = await prisma.term.findUnique({ where: { id: termId } })
   if (!term) throw new Error('Term not found')
 
-  const [classes, existing] = await Promise.all([
+  const [classes, existing, yearLevels] = await Promise.all([
     prisma.class.findMany({
       where: {
         archived:    false,
@@ -87,13 +88,21 @@ export async function seedTermForAllClasses(termId: number, classIds?: number[])
         endTime:     { not: null },
         ...(classIds ? { id: { in: classIds } } : {}),
       },
-      select: { id: true, dayOfWeek: true, startTime: true, endTime: true, yearLevelId: true },
+      select: {
+        id: true, dayOfWeek: true, startTime: true, endTime: true, yearLevelId: true,
+        yearLevel: { select: { level: true } },
+      },
     }),
     prisma.classSession.findMany({
       where: { termId: term.id },
       select: { classId: true, weekNumber: true },
     }),
+    prisma.yearLevel.findMany({ select: { id: true, level: true } }),
   ])
+
+  // Fallback lookup — not currently used, but here in case a class is missing
+  // its embedded yearLevel relation.
+  void yearLevels
 
   const taken = new Set(existing.map(e => `${e.classId}:${e.weekNumber}`))
   const rows: {
@@ -101,6 +110,9 @@ export async function seedTermForAllClasses(termId: number, classIds?: number[])
     date: Date; startTime: string; endTime: string; yearLevelId: number;
   }[] = []
   for (const cls of classes) {
+    // Derive endTime from the class's start time + year duration — don't copy
+    // the class row's endTime, which may be stale (from a rollover or old data).
+    const endTime = computeEndTime(cls.startTime!, cls.yearLevel.level)
     for (let w = 1; w <= term.weeks; w++) {
       if (taken.has(`${cls.id}:${w}`)) continue
       rows.push({
@@ -109,7 +121,7 @@ export async function seedTermForAllClasses(termId: number, classIds?: number[])
         weekNumber:  w,
         date:        weekDate(term.startDate, w, cls.dayOfWeek!),
         startTime:   cls.startTime!,
-        endTime:     cls.endTime!,
+        endTime,
         yearLevelId: cls.yearLevelId,
       })
     }
@@ -125,10 +137,14 @@ export async function seedTermForAllClasses(termId: number, classIds?: number[])
 export async function slotClassIntoTerm(classId: number, termId: number, fromWeek: number) {
   const [term, cls] = await Promise.all([
     prisma.term.findUnique({ where: { id: termId } }),
-    prisma.class.findUnique({ where: { id: classId } }),
+    prisma.class.findUnique({
+      where:  { id: classId },
+      include: { yearLevel: { select: { level: true } } },
+    }),
   ])
   if (!term || !cls) return { created: 0 }
   if (!cls.isRecurring || cls.dayOfWeek == null || !cls.startTime || !cls.endTime) return { created: 0 }
+  const endTime = computeEndTime(cls.startTime, cls.yearLevel.level)
   let created = 0
   for (let w = Math.max(1, fromWeek); w <= term.weeks; w++) {
     const date = weekDate(term.startDate, w, cls.dayOfWeek)
@@ -143,7 +159,7 @@ export async function slotClassIntoTerm(classId: number, termId: number, fromWee
         weekNumber:  w,
         date,
         startTime:   cls.startTime,
-        endTime:     cls.endTime,
+        endTime,
         yearLevelId: cls.yearLevelId,
       },
     })

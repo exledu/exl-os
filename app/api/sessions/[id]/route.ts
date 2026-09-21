@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db'
 import { startOfDay } from 'date-fns'
 import { logAction, getActorStaffId } from '@/lib/staff-actions'
+import { computeEndTime } from '@/lib/class-duration'
 
 export async function GET(_req: Request, ctx: RouteContext<'/api/sessions/[id]'>) {
   const { id } = await ctx.params
@@ -72,9 +73,19 @@ export async function PATCH(request: Request, ctx: RouteContext<'/api/sessions/[
     if (!TIME_RE.test(body.startTime)) return new Response('Invalid startTime', { status: 400 })
     data.startTime = body.startTime
   }
-  if (typeof body.endTime === 'string') {
-    if (!TIME_RE.test(body.endTime)) return new Response('Invalid endTime', { status: 400 })
-    data.endTime = body.endTime
+
+  // Auto-derive endTime from the session's yearLevel + startTime whenever
+  // startTime changes, so a reschedule keeps the correct duration.
+  if (typeof data.startTime === 'string') {
+    const cur = await prisma.classSession.findUnique({
+      where: { id: sessionId },
+      include: {
+        yearLevel: { select: { level: true } },
+        class:     { select: { yearLevel: { select: { level: true } } } },
+      },
+    })
+    const yr = cur?.yearLevel?.level ?? cur?.class.yearLevel.level
+    if (yr) data.endTime = computeEndTime(data.startTime, yr)
   }
 
   // Cross-field validation: end must be strictly after start
