@@ -57,6 +57,7 @@ interface SessionDetail {
   parentEmailsSentAt: string | null
   yearLevel: { level: number } | null
   term: { id: number; name: string } | null
+  staffId: number | null
   staff: { id: number; name: string } | null
   class: {
     id: number
@@ -375,6 +376,14 @@ function ClassCard({ detail, onClose, onChanged }: {
 
 // ── Session card ──────────────────────────────────────────────────────────
 
+interface PendingAttendance {
+  present?:        boolean
+  notifiedAbsent?: boolean
+  homework?:       HomeworkStatus | null
+}
+
+interface StaffOpt { id: number; name: string }
+
 function SessionCard({ detail, onClose, onChanged, onDeleted }: {
   detail: SessionDetail | null
   onClose: () => void
@@ -382,6 +391,52 @@ function SessionCard({ detail, onClose, onChanged, onDeleted }: {
   onDeleted: () => void
 }) {
   const [busy, setBusy] = useState(false)
+  const [pending, setPending] = useState<Map<number, PendingAttendance>>(new Map())
+  const [openEditor, setOpenEditor] = useState<null | 'schedule' | 'staff'>(null)
+  const [staffOpts, setStaffOpts] = useState<StaffOpt[]>([])
+
+  // Reset pending changes when the selected session changes.
+  useEffect(() => {
+    setPending(new Map())
+    setOpenEditor(null)
+  }, [detail?.id])
+
+  // Prefetch staff for the tutor popover.
+  useEffect(() => {
+    if (staffOpts.length > 0) return
+    let cancelled = false
+    fetch('/api/staff', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : [])
+      .then((rows: StaffOpt[]) => { if (!cancelled) setStaffOpts(rows) })
+    return () => { cancelled = true }
+  }, [staffOpts.length])
+
+  function pendPatch(studentId: number, patch: PendingAttendance) {
+    setPending(prev => {
+      const next = new Map(prev)
+      next.set(studentId, { ...(prev.get(studentId) ?? {}), ...patch })
+      return next
+    })
+  }
+
+  async function saveBatch() {
+    if (!detail || pending.size === 0) return
+    setBusy(true)
+    try {
+      const updates = Array.from(pending.entries()).map(([studentId, u]) => ({ studentId, ...u }))
+      const res = await fetch(`/api/sessions/${detail.id}/attendance/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
+      })
+      if (res.ok) {
+        setPending(new Map())
+        onChanged()
+      } else {
+        alert('Failed to save attendance')
+      }
+    } finally { setBusy(false) }
+  }
 
   async function toggleCancel() {
     if (!detail) return
@@ -404,6 +459,34 @@ function SessionCard({ detail, onClose, onChanged, onDeleted }: {
       const res = await fetch(`/api/sessions/${detail.id}`, { method: 'DELETE' })
       if (res.ok) onDeleted()
       else alert('Failed to delete session')
+    } finally { setBusy(false) }
+  }
+
+  async function saveSchedule(date: string, startTime: string) {
+    if (!detail) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/sessions/${detail.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, startTime }),
+      })
+      if (res.ok) { setOpenEditor(null); onChanged() }
+      else alert('Failed to save schedule')
+    } finally { setBusy(false) }
+  }
+
+  async function saveStaff(staffId: number | null) {
+    if (!detail) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/sessions/${detail.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staffId }),
+      })
+      if (res.ok) { setOpenEditor(null); onChanged() }
+      else alert('Failed to save staff')
     } finally { setBusy(false) }
   }
 
@@ -434,18 +517,33 @@ function SessionCard({ detail, onClose, onChanged, onDeleted }: {
             </div>
           )}
 
-          <div className="space-y-1.5 text-sm">
-            <Line icon={CalendarClock} label="When" value={
-              <span>
-                <div>{fmtDateLong(detail.date)}</div>
-                <div className="text-xs text-gray-500 tabular-nums">{detail.startTime}–{detail.endTime}</div>
-              </span>
-            } />
+          <div className="space-y-1.5 text-sm relative">
+            <EditableLine
+              icon={CalendarClock} label="When"
+              value={
+                <span>
+                  <div>{fmtDateLong(detail.date)}</div>
+                  <div className="text-xs text-gray-500 tabular-nums">{detail.startTime}–{detail.endTime}</div>
+                </span>
+              }
+              onEdit={() => setOpenEditor(openEditor === 'schedule' ? null : 'schedule')}
+              isOpen={openEditor === 'schedule'}
+              popover={
+                <SchedulePopover
+                  initialDate={detail.date}
+                  initialStart={detail.startTime}
+                  onCancel={() => setOpenEditor(null)}
+                  onSave={saveSchedule}
+                  saving={busy}
+                />
+              }
+            />
             {detail.originalDate && detail.originalDate !== detail.date && (
               <Line icon={CalendarClock} label="Rescheduled from"
                 value={<span className="text-amber-700">{fmtDateLong(detail.originalDate)}</span>} />
             )}
-            <Line icon={User} label={detail.staff ? 'Cover' : 'Tutor'}
+            <EditableLine
+              icon={User} label={detail.staff ? 'Cover' : 'Tutor'}
               value={
                 <span>
                   {detail.staff?.name ?? detail.class.staff.name}
@@ -453,23 +551,55 @@ function SessionCard({ detail, onClose, onChanged, onDeleted }: {
                     <span className="ml-1 text-[10px] font-semibold uppercase text-amber-700">cover</span>
                   )}
                 </span>
-              } />
+              }
+              onEdit={() => setOpenEditor(openEditor === 'staff' ? null : 'staff')}
+              isOpen={openEditor === 'staff'}
+              popover={
+                <StaffPopover
+                  options={staffOpts}
+                  defaultStaffId={detail.class.staff.id}
+                  currentStaffId={detail.staffId ?? null}
+                  onCancel={() => setOpenEditor(null)}
+                  onSave={saveStaff}
+                  saving={busy}
+                />
+              }
+            />
             {detail.class.room && (
               <Line icon={MapPin} label="Room" value={detail.class.room.name} />
             )}
             <Line icon={Users} label="Enrolments" value={String(detail.class._count.enrolments)} />
           </div>
 
-          <RosterSection detail={detail} onChanged={onChanged} />
+          <RosterSection detail={detail} pending={pending} onPending={pendPatch} />
+
+          {/* Save/Discard when there are pending attendance changes */}
+          {pending.size > 0 && (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
+              <span className="text-amber-800 font-medium">
+                {pending.size} unsaved change{pending.size === 1 ? '' : 's'}
+              </span>
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => setPending(new Map())}
+                  disabled={busy}
+                  className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50"
+                >
+                  Discard
+                </button>
+                <button
+                  onClick={saveBatch}
+                  disabled={busy}
+                  className="rounded-md bg-[#002F67] px-2 py-1 text-[11px] font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
+                >
+                  {busy ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Action bar */}
           <div className="pt-2 border-t border-gray-100 flex flex-wrap gap-2">
-            <Link
-              href={`/classes/${detail.class.id}`}
-              className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <Pencil className="h-3 w-3" /> Edit date/time/staff
-            </Link>
             <button
               onClick={toggleCancel}
               disabled={busy}
@@ -501,6 +631,132 @@ function SessionCard({ detail, onClose, onChanged, onDeleted }: {
   )
 }
 
+function EditableLine({ icon: Icon, label, value, onEdit, isOpen, popover }: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  value: React.ReactNode
+  onEdit: () => void
+  isOpen: boolean
+  popover: React.ReactNode
+}) {
+  return (
+    <div className="flex items-start gap-2 relative group">
+      <Icon className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">{label}</div>
+          <button
+            onClick={onEdit}
+            className={`rounded p-0.5 text-gray-300 hover:text-[#002F67] hover:bg-blue-50 transition-all ${
+              isOpen ? 'text-[#002F67] bg-blue-50 opacity-100' : 'opacity-0 group-hover:opacity-100'
+            }`}
+          >
+            <Pencil className="h-2.5 w-2.5" />
+          </button>
+        </div>
+        <div className="text-gray-800">{value}</div>
+      </div>
+      {isOpen && (
+        <div className="absolute left-6 top-full mt-1.5 z-30 rounded-lg border border-gray-200 bg-white shadow-lg p-3 min-w-[220px]">
+          {popover}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SchedulePopover({ initialDate, initialStart, onSave, onCancel, saving }: {
+  initialDate: string
+  initialStart: string
+  onSave: (date: string, startTime: string) => void
+  onCancel: () => void
+  saving: boolean
+}) {
+  const [date, setDate]   = useState(initialDate)
+  const [start, setStart] = useState(initialStart)
+  return (
+    <div className="space-y-2">
+      <label className="block">
+        <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Date</div>
+        <input
+          type="date"
+          value={date}
+          onChange={e => setDate(e.target.value)}
+          className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs"
+        />
+      </label>
+      <label className="block">
+        <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Start time</div>
+        <input
+          type="time"
+          value={start}
+          onChange={e => setStart(e.target.value)}
+          className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs"
+        />
+        <p className="mt-1 text-[10px] text-gray-400">End time is auto-derived from year duration.</p>
+      </label>
+      <div className="flex justify-end gap-1.5 pt-1">
+        <button type="button" onClick={onCancel} className="rounded-md px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700">Cancel</button>
+        <button
+          type="button"
+          onClick={() => onSave(date, start)}
+          disabled={saving}
+          className="rounded-md bg-[#002F67] px-2 py-1 text-[11px] font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function StaffPopover({ options, defaultStaffId, currentStaffId, onSave, onCancel, saving }: {
+  options: StaffOpt[]
+  defaultStaffId: number
+  currentStaffId: number | null
+  onSave: (staffId: number | null) => void
+  onCancel: () => void
+  saving: boolean
+}) {
+  // currentStaffId=null means "use class default"
+  const [selected, setSelected] = useState<number>(currentStaffId ?? defaultStaffId)
+
+  function submit() {
+    // If they picked the default, send null to clear the override.
+    onSave(selected === defaultStaffId ? null : selected)
+  }
+  return (
+    <div className="space-y-2 min-w-[200px]">
+      <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Assigned staff</div>
+      <select
+        value={selected}
+        onChange={e => setSelected(Number(e.target.value))}
+        className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs bg-white"
+      >
+        {options.map(o => (
+          <option key={o.id} value={o.id}>
+            {o.name}{o.id === defaultStaffId ? ' (default)' : ''}
+          </option>
+        ))}
+      </select>
+      <p className="text-[10px] text-gray-400">
+        Choosing the default clears any cover override on this session.
+      </p>
+      <div className="flex justify-end gap-1.5">
+        <button type="button" onClick={onCancel} className="rounded-md px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700">Cancel</button>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={saving}
+          className="rounded-md bg-[#002F67] px-2 py-1 text-[11px] font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function Line({ icon: Icon, label, value }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
@@ -520,12 +776,11 @@ function Line({ icon: Icon, label, value }: {
 const HOMEWORK_CYCLE = ['UNATTEMPTED', 'INCOMPLETE', 'SATISFACTORY', 'EXCELLENT'] as const
 type HomeworkStatus = typeof HOMEWORK_CYCLE[number]
 
-function RosterSection({ detail, onChanged }: {
-  detail: SessionDetail
-  onChanged: () => void
+function RosterSection({ detail, pending, onPending }: {
+  detail:   SessionDetail
+  pending:  Map<number, PendingAttendance>
+  onPending: (studentId: number, patch: PendingAttendance) => void
 }) {
-  // Build a merged roster from class enrolments + trials, then attach any
-  // attendance record that exists for each student.
   const enrolledIds = new Set(detail.class.enrolments.map(e => e.student.id))
   const roster = [
     ...detail.class.enrolments.map(e => ({ ...e.student, trial: false })),
@@ -535,32 +790,36 @@ function RosterSection({ detail, onChanged }: {
   ].sort((a, b) => a.name.localeCompare(b.name))
 
   const byStudent = new Map(detail.attendances.map(a => [a.student.id, a]))
-  const anyMarked = detail.attendances.length > 0
-  const presentN  = detail.attendances.filter(a => a.present).length
 
-  const [savingFor, setSavingFor] = useState<number | null>(null)
-
-  async function patch(studentId: number, body: Record<string, unknown>) {
-    setSavingFor(studentId)
-    try {
-      const res = await fetch(`/api/sessions/${detail.id}/attendance`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId, ...body }),
-      })
-      if (res.ok) onChanged()
-    } finally { setSavingFor(null) }
+  // Merge saved attendance with any local pending changes.
+  function effectiveState(studentId: number) {
+    const saved  = byStudent.get(studentId)
+    const patch  = pending.get(studentId)
+    return {
+      present:        patch?.present        ?? saved?.present        ?? undefined,
+      notifiedAbsent: patch?.notifiedAbsent ?? saved?.notifiedAbsent ?? undefined,
+      homework:       (patch && 'homework' in patch ? patch.homework : saved?.homework) ?? null,
+    }
   }
 
-  function nextPresenceState(a: { present: boolean; notifiedAbsent: boolean } | undefined) {
+  // Effective present count for the "3/10" summary.
+  let presentEff = 0
+  let markedEff  = 0
+  for (const s of roster) {
+    const eff = effectiveState(s.id)
+    if (eff.present === true) presentEff++
+    if (eff.present !== undefined || eff.notifiedAbsent !== undefined || eff.homework != null) markedEff++
+  }
+  const anyMarked = markedEff > 0
+
+  function nextPresenceState(cur: { present?: boolean; notifiedAbsent?: boolean }) {
     // Cycle: unmarked → present → absent → notified-absent → present
-    if (!a)                                   return { present: true,  notifiedAbsent: false }
-    if (a.present)                            return { present: false, notifiedAbsent: false }
-    if (!a.present && !a.notifiedAbsent)      return { present: false, notifiedAbsent: true }
+    if (cur.present === undefined && !cur.notifiedAbsent) return { present: true,  notifiedAbsent: false }
+    if (cur.present === true)                             return { present: false, notifiedAbsent: false }
+    if (cur.present === false && !cur.notifiedAbsent)     return { present: false, notifiedAbsent: true }
     return { present: true, notifiedAbsent: false }
   }
-
-  function nextHomework(cur: string | null | undefined): HomeworkStatus {
+  function nextHomework(cur: string | null): HomeworkStatus {
     if (!cur) return 'UNATTEMPTED'
     const i = HOMEWORK_CYCLE.indexOf(cur as HomeworkStatus)
     return HOMEWORK_CYCLE[(i + 1) % HOMEWORK_CYCLE.length]
@@ -577,24 +836,23 @@ function RosterSection({ detail, onChanged }: {
           {anyMarked ? 'Attendance' : 'Roster'}
         </div>
         <div className="text-[10px] text-gray-400 tabular-nums">
-          {anyMarked ? `${presentN}/${roster.length}` : `${roster.length} enrolled`}
+          {anyMarked ? `${presentEff}/${roster.length}` : `${roster.length} enrolled`}
         </div>
       </div>
       <ul className="space-y-1">
         {roster.map(s => {
-          const a = byStudent.get(s.id)
+          const eff = effectiveState(s.id)
+          const marked = eff.present !== undefined || eff.notifiedAbsent
+          const isDirty = pending.has(s.id)
           const name = s.lastName ? `${s.name} ${s.lastName}` : s.name
-          const saving = savingFor === s.id
           return (
-            <li key={s.id} className="flex items-center gap-1.5 text-xs">
+            <li key={s.id} className={`flex items-center gap-1.5 text-xs rounded px-1 -mx-1 ${isDirty ? 'bg-amber-50' : ''}`}>
               <button
-                onClick={() => patch(s.id, nextPresenceState(a))}
-                disabled={saving}
+                onClick={() => onPending(s.id, nextPresenceState(eff))}
                 title="Click to cycle Present → Absent → Notified absent"
-                className="disabled:opacity-40"
               >
-                {a
-                  ? <PresenceBadge present={a.present} notified={a.notifiedAbsent} />
+                {marked
+                  ? <PresenceBadge present={eff.present === true} notified={!!eff.notifiedAbsent} />
                   : <UnmarkedBadge />}
               </button>
               <span className="flex-1 min-w-0 truncate text-gray-700">{name}</span>
@@ -602,13 +860,11 @@ function RosterSection({ detail, onChanged }: {
                 <span className="rounded bg-amber-50 border border-amber-200 px-1 py-0.5 text-[9px] font-semibold text-amber-700">TRIAL</span>
               )}
               <button
-                onClick={() => patch(s.id, { homework: nextHomework(a?.homework) })}
-                disabled={saving}
+                onClick={() => onPending(s.id, { homework: nextHomework(eff.homework) })}
                 title="Click to cycle homework status"
-                className="disabled:opacity-40"
               >
-                {a?.homework
-                  ? <HomeworkBadge status={a.homework} />
+                {eff.homework
+                  ? <HomeworkBadge status={eff.homework} />
                   : <span className="inline-flex rounded border border-dashed border-gray-300 text-[9px] text-gray-400 px-1 py-0.5">HW?</span>}
               </button>
             </li>
@@ -616,7 +872,7 @@ function RosterSection({ detail, onChanged }: {
         })}
       </ul>
       <p className="mt-1.5 text-[10px] text-gray-400">
-        Click the badge to cycle. Presence: Y → N → N* → Y. HW: unattempted → incomplete → satisfactory → excellent.
+        Click a badge to cycle. Changes stay local until you press Save.
       </p>
     </div>
   )
