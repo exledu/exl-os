@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, X, User, MapPin, Users, CalendarClock, Ban, Trash2, Archive, Pencil, Plus } from 'lucide-react'
+import { ArrowLeft, X, User, MapPin, Users, CalendarClock, Ban, Trash2, Archive, Pencil, Plus, UserPlus, Repeat } from 'lucide-react'
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -59,6 +59,7 @@ interface SessionDetail {
   staff: { id: number; name: string } | null
   class: {
     id: number
+    isRecurring: boolean
     subject: { name: string }
     yearLevel: { level: number }
     staff: { id: number; name: string }
@@ -75,8 +76,15 @@ interface SessionDetail {
   trials: { student: { id: number; name: string; lastName: string | null } }[]
 }
 
-interface StaffOpt { id: number; name: string }
-interface RoomOpt  { id: number; name: string }
+interface StaffOpt   { id: number; name: string }
+interface RoomOpt    { id: number; name: string }
+interface SubjectOpt { id: number; name: string }
+interface StudentOpt {
+  id: number
+  name: string
+  lastName: string | null
+  yearLevel: { level: number }
+}
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const HOMEWORK_CYCLE = ['UNATTEMPTED', 'INCOMPLETE', 'SATISFACTORY', 'EXCELLENT'] as const
@@ -117,18 +125,24 @@ export function TermGridView({ termId }: { termId: number }) {
   const setSessionCached = (id: number, d: SessionDetail) => setSessionCache(prev => new Map(prev).set(id, d))
 
   const [lookups, setLookups] = useState<{
-    staff: StaffOpt[]; rooms: RoomOpt[]; yearLevels: { id: number; level: number }[]
+    staff:      StaffOpt[]
+    rooms:      RoomOpt[]
+    subjects:   SubjectOpt[]
+    yearLevels: { id: number; level: number }[]
   } | null>(null)
   useEffect(() => {
     (async () => {
-      const [staff, rooms, yearLevels] = await Promise.all([
+      const [staff, rooms, subjects, yearLevels] = await Promise.all([
         fetch('/api/staff').then(r => r.ok ? r.json() : []),
         fetch('/api/rooms').then(r => r.ok ? r.json() : []),
+        fetch('/api/subjects').then(r => r.ok ? r.json() : []),
         fetch('/api/year-levels').then(r => r.ok ? r.json() : []),
       ])
-      setLookups({ staff, rooms, yearLevels })
+      setLookups({ staff, rooms, subjects, yearLevels })
     })()
   }, [])
+
+  const [createOpen, setCreateOpen] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -161,12 +175,14 @@ export function TermGridView({ termId }: { termId: number }) {
             W1 begins {fmtDateLong(term.startDate)} · {term.weeks} weeks · {grid.length} classes
           </p>
         </div>
-        <Link
-          href="/classes/new"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-[#002F67] px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-[#011f42]"
-        >
-          <Plus className="h-3.5 w-3.5" /> New class
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setCreateOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#002F67] px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-[#011f42]"
+          >
+            <Plus className="h-3.5 w-3.5" /> New class
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
@@ -231,6 +247,14 @@ export function TermGridView({ termId }: { termId: number }) {
         Click a class name to open its info. Click a session cell to open its details.
       </p>
 
+      {createOpen && lookups && (
+        <ClassCreateModal
+          lookups={lookups}
+          term={term}
+          onClose={() => setCreateOpen(false)}
+          onCreated={() => { setCreateOpen(false); reloadGrid() }}
+        />
+      )}
       {modal?.kind === 'class' && (
         <ClassModal
           classId={modal.id}
@@ -480,11 +504,13 @@ function ClassModal({ classId, cached, onCache, lookups, onClose, onChanged }: {
 
           {mode === 'view' && (
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1.5">
-                Students {detail.enrolments.length > 0 && `(${detail.enrolments.length})`}
+              <div className="flex items-baseline justify-between mb-1.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                  Students {detail.enrolments.length > 0 && `(${detail.enrolments.length})`}
+                </div>
               </div>
               {detail.enrolments.length === 0 ? (
-                <p className="text-xs text-gray-400 italic">No students enrolled.</p>
+                <p className="text-xs text-gray-400 italic">No students enrolled yet.</p>
               ) : (
                 <ul className="space-y-0.5">
                   {detail.enrolments.map(e => (
@@ -504,6 +530,21 @@ function ClassModal({ classId, cached, onCache, lookups, onClose, onChanged }: {
                   ))}
                 </ul>
               )}
+              <AddStudentInline
+                excludeIds={new Set(detail.enrolments.map(e => e.student.id))}
+                onAdd={async id => {
+                  setBusy(true)
+                  try {
+                    const res = await fetch(`/api/classes/${classId}/enrolments`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ studentId: id }),
+                    })
+                    if (res.ok) { await load(); onChanged() }
+                  } finally { setBusy(false) }
+                }}
+                busy={busy}
+              />
             </div>
           )}
 
@@ -749,6 +790,14 @@ function SessionModal({ sessionId, cached, onCache, staffOpts, onClose, onStruct
             <RosterSection detail={detail} pending={pending} onPending={pendPatch} />
           )}
 
+          {mode === 'view' && !detail.class.isRecurring && (
+            <ConvertTrialInline
+              classId={detail.class.id}
+              trialDate={detail.date}
+              onConverted={() => { onStructuralChange(); onClose() }}
+            />
+          )}
+
           {mode === 'view' && pending.size > 0 && (
             <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
               <span className="text-amber-800 font-medium">
@@ -956,5 +1005,317 @@ function HomeworkBadge({ status }: { status: string }) {
     <span className={`inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold tracking-wide ${s.cls}`} title={`Homework: ${status.toLowerCase()}`}>
       {s.label}
     </span>
+  )
+}
+
+// ── Add-student picker (used inside ClassModal) ──────────────────────────
+
+function AddStudentInline({ excludeIds, onAdd, busy }: {
+  excludeIds: Set<number>
+  onAdd: (studentId: number) => Promise<void>
+  busy: boolean
+}) {
+  const [open, setOpen]   = useState(false)
+  const [q, setQ]         = useState('')
+  const [rows, setRows]   = useState<StudentOpt[] | null>(null)
+
+  useEffect(() => {
+    if (!open || rows !== null) return
+    fetch('/api/students')
+      .then(r => r.ok ? r.json() : [])
+      .then(setRows)
+  }, [open, rows])
+
+  const filtered = useMemo(() => {
+    if (!rows) return []
+    const needle = q.trim().toLowerCase()
+    return rows
+      .filter(r => !excludeIds.has(r.id))
+      .filter(r => !needle || `${r.name} ${r.lastName ?? ''}`.toLowerCase().includes(needle))
+      .slice(0, 20)
+  }, [rows, q, excludeIds])
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="mt-2 inline-flex items-center gap-1 rounded border border-dashed border-gray-300 px-2 py-1 text-xs text-gray-500 hover:border-[#002F67] hover:text-[#002F67]"
+      >
+        <UserPlus className="h-3 w-3" /> Add student
+      </button>
+    )
+  }
+  return (
+    <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50/50 p-2 space-y-1.5">
+      <div className="flex items-center gap-1.5">
+        <input
+          autoFocus
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Search students…"
+          className="flex-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs"
+        />
+        <button onClick={() => setOpen(false)} className="rounded p-0.5 text-gray-400 hover:text-gray-700">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="max-h-40 overflow-y-auto rounded-md bg-white border border-gray-100">
+        {rows === null ? (
+          <div className="p-2 text-[11px] text-gray-400">Loading…</div>
+        ) : filtered.length === 0 ? (
+          <div className="p-2 text-[11px] text-gray-400 italic">
+            {q ? 'No matches.' : 'All students are already enrolled.'}
+          </div>
+        ) : (
+          <ul>
+            {filtered.map(s => (
+              <li key={s.id}>
+                <button
+                  disabled={busy}
+                  onClick={async () => { await onAdd(s.id); setOpen(false); setQ('') }}
+                  className="block w-full px-2 py-1 text-left text-xs hover:bg-blue-50 disabled:opacity-50"
+                >
+                  {s.name}{s.lastName ? ` ${s.lastName}` : ''}
+                  <span className="ml-1.5 text-[10px] text-gray-400">Yr{s.yearLevel.level}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Trial → recurring converter (used in SessionModal) ───────────────────
+
+function ConvertTrialInline({ classId, trialDate, onConverted }: {
+  classId: number
+  trialDate: string
+  onConverted: () => void
+}) {
+  const [open, setOpen]         = useState(false)
+  const [weekOfTerm, setWeek]   = useState(1)
+  const [busy, setBusy]         = useState(false)
+
+  // Sensible defaults for day + start time: derived from the trial itself so the
+  // user only needs to confirm the week they consider this trial to fall in.
+  async function submit() {
+    setBusy(true)
+    try {
+      const d = new Date(trialDate)
+      const dayOfWeek = d.getUTCDay()
+      const res = await fetch(`/api/classes/${classId}/convert-to-recurring`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dayOfWeek, weekOfTerm }),
+      })
+      if (res.ok) onConverted()
+      else alert('Failed to convert')
+    } finally { setBusy(false) }
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-emerald-300 bg-emerald-50/40 px-3 py-2 text-xs font-medium text-emerald-800 hover:bg-emerald-50"
+      >
+        <Repeat className="h-3.5 w-3.5" /> Convert trial to recurring class
+      </button>
+    )
+  }
+  return (
+    <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 space-y-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-900">
+        Convert to recurring class
+      </div>
+      <label className="block text-xs">
+        <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">
+          Week of term this trial counts as
+        </span>
+        <select
+          value={weekOfTerm}
+          onChange={e => setWeek(Number(e.target.value))}
+          className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs"
+        >
+          {Array.from({ length: 10 }, (_, i) => i + 1).map(w => (
+            <option key={w} value={w}>Week {w}</option>
+          ))}
+        </select>
+        <span className="ml-2 text-[10px] text-gray-500">
+          → {10 - weekOfTerm} more session{10 - weekOfTerm === 1 ? '' : 's'} will be seeded
+        </span>
+      </label>
+      <div className="flex justify-end gap-1.5">
+        <button onClick={() => setOpen(false)} className="rounded-md px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700">Cancel</button>
+        <button
+          onClick={submit}
+          disabled={busy}
+          className="rounded-md bg-emerald-700 px-2 py-1 text-[11px] font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+        >
+          {busy ? 'Converting…' : 'Convert'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── New Class modal ──────────────────────────────────────────────────────
+
+function ClassCreateModal({ lookups, term, onClose, onCreated }: {
+  lookups: { staff: StaffOpt[]; rooms: RoomOpt[]; subjects: SubjectOpt[]; yearLevels: { id: number; level: number }[] }
+  term:    { id: number; name: string; startDate: string; weeks: number }
+  onClose:  () => void
+  onCreated: () => void
+}) {
+  const [subjectId,   setSubjectId]   = useState<number | ''>('')
+  const [yearLevelId, setYearLevelId] = useState<number | ''>('')
+  const [staffId,     setStaffId]     = useState<number | ''>('')
+  const [roomId,      setRoomId]      = useState<number | ''>('')
+  const [maxCapacity, setMaxCapacity] = useState(6)
+  const [dayOfWeek,   setDayOfWeek]   = useState<number | ''>('')
+  const [startTime,   setStartTime]   = useState('')
+  const [startDate,   setStartDate]   = useState(term.startDate)
+  const [busy, setBusy] = useState(false)
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (subjectId === '' || yearLevelId === '' || staffId === '' || dayOfWeek === '' || !startTime) return
+    setBusy(true)
+    try {
+      // Create the class WITHOUT recurrenceStart so POST /api/classes doesn't
+      // auto-seed a positional first term — the term system will slot it in.
+      const createRes = await fetch('/api/classes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subjectId, yearLevelId, staffId,
+          roomId:      roomId === '' ? null : roomId,
+          maxCapacity,
+          isRecurring: true,
+          dayOfWeek,
+          startTime,
+          recurrenceStart: null,
+          sessionDate:     null,
+        }),
+      })
+      if (!createRes.ok) { alert('Failed to create class'); setBusy(false); return }
+      const created = await createRes.json() as { id: number }
+
+      // Slot into the current term starting from the user's chosen date.
+      const slotRes = await fetch(`/api/terms/${term.id}/slot-class`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ classId: created.id, fromDate: startDate }),
+      })
+      if (!slotRes.ok) {
+        const j = await slotRes.json().catch(() => ({}))
+        alert(`Class created but slotting failed: ${j.error ?? 'unknown'}`)
+      }
+      onCreated()
+    } finally { setBusy(false) }
+  }
+
+  const weeksForRange = Array.from({ length: term.weeks }, (_, i) => {
+    const d = new Date(term.startDate)
+    d.setUTCDate(d.getUTCDate() + i * 7)
+    return d.toISOString().slice(0, 10)
+  })
+  const minDate = weeksForRange[0]
+  const maxDate = (() => {
+    const d = new Date(term.startDate)
+    d.setUTCDate(d.getUTCDate() + term.weeks * 7 - 1)
+    return d.toISOString().slice(0, 10)
+  })()
+
+  return (
+    <ModalShell title="New class" subtitle={`Will slot into ${term.name}`} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block text-xs">
+            <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Subject</span>
+            <select value={subjectId} onChange={e => setSubjectId(Number(e.target.value))} required
+              className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm">
+              <option value="" disabled>Choose…</option>
+              {lookups.subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </label>
+          <label className="block text-xs">
+            <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Year level</span>
+            <select value={yearLevelId} onChange={e => setYearLevelId(Number(e.target.value))} required
+              className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm">
+              <option value="" disabled>Choose…</option>
+              {lookups.yearLevels.map(y => <option key={y.id} value={y.id}>Yr {y.level}</option>)}
+            </select>
+          </label>
+        </div>
+
+        <label className="block text-xs">
+          <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Tutor</span>
+          <select value={staffId} onChange={e => setStaffId(Number(e.target.value))} required
+            className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm">
+            <option value="" disabled>Choose…</option>
+            {lookups.staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </label>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block text-xs">
+            <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Room</span>
+            <select value={roomId} onChange={e => setRoomId(e.target.value === '' ? '' : Number(e.target.value))}
+              className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm">
+              <option value="">— none —</option>
+              {lookups.rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </label>
+          <label className="block text-xs">
+            <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Capacity</span>
+            <input type="number" min={1} max={20} value={maxCapacity}
+              onChange={e => setMaxCapacity(Number(e.target.value))}
+              className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm" />
+          </label>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block text-xs">
+            <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Day</span>
+            <select value={dayOfWeek} onChange={e => setDayOfWeek(Number(e.target.value))} required
+              className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm">
+              <option value="" disabled>Choose…</option>
+              {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+            </select>
+          </label>
+          <label className="block text-xs">
+            <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Start time</span>
+            <input type="time" required value={startTime}
+              onChange={e => setStartTime(e.target.value)}
+              className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm" />
+          </label>
+        </div>
+
+        <label className="block text-xs">
+          <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">
+            Slot from date
+          </span>
+          <input type="date" required value={startDate}
+            min={minDate} max={maxDate}
+            onChange={e => setStartDate(e.target.value)}
+            className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm" />
+          <p className="mt-1 text-[10px] text-gray-500">
+            Sessions will be seeded from the week this date falls in through W{term.weeks}. End time
+            derives from year level.
+          </p>
+        </label>
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+          <button type="button" onClick={onClose} className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
+          <button type="submit" disabled={busy}
+            className="rounded-lg bg-[#002F67] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#011f42] disabled:opacity-50">
+            {busy ? 'Creating…' : 'Create class'}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
   )
 }
