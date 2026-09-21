@@ -19,7 +19,13 @@ export async function GET(_req: Request, ctx: RouteContext<'/api/sessions/[id]'>
           _count:    { select: { enrolments: true } },
         },
       },
-      attendances: { select: { present: true, notifiedAbsent: true, homework: true } },
+      attendances: {
+        select: {
+          present: true, notifiedAbsent: true, homework: true,
+          student: { select: { id: true, name: true, lastName: true } },
+        },
+        orderBy: { student: { name: 'asc' } },
+      },
     },
   })
   if (!session) return new Response('Not found', { status: 404 })

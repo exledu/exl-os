@@ -66,7 +66,12 @@ interface SessionDetail {
     room: { id: number; name: string } | null
     _count: { enrolments: number }
   }
-  attendances: { present: boolean; notifiedAbsent: boolean; homework: string | null }[]
+  attendances: {
+    present: boolean
+    notifiedAbsent: boolean
+    homework: string | null
+    student: { id: number; name: string; lastName: string | null }
+  }[]
 }
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -153,25 +158,27 @@ export function TermGridView({ termId }: { termId: number }) {
             <table className="text-sm">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2.5 min-w-[220px]">Class</th>
+                  <th className="sticky left-0 z-20 bg-gray-50 px-3 py-2.5 min-w-[260px] whitespace-nowrap shadow-[2px_0_0_-1px_rgb(229_231_235)]">Class</th>
                   {Array.from({ length: term.weeks }, (_, i) => (
                     <th key={i} className="px-2 py-2.5 text-center min-w-[88px]">W{i + 1}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="text-gray-700">
-                {grid.map(row => (
-                  <tr key={row.classId} className={`border-t border-gray-100 ${selectedClassId === row.classId ? 'bg-blue-50/50' : ''}`}>
-                    <td className="sticky left-0 z-10 bg-inherit px-3 py-2 border-r border-gray-100">
+                {grid.map(row => {
+                  const selected = selectedClassId === row.classId
+                  // Fully opaque sticky bg so scrolled cells don't bleed through.
+                  const stickyBg = selected ? 'bg-blue-50' : 'bg-white'
+                  return (
+                  <tr key={row.classId} className={`border-t border-gray-100 ${selected ? 'bg-blue-50' : ''}`}>
+                    <td className={`sticky left-0 z-10 ${stickyBg} px-3 py-2 border-r border-gray-100 shadow-[2px_0_0_-1px_rgb(229_231_235)]`}>
                       <button
-                        onClick={() => setSelectedClassId(row.classId === selectedClassId ? null : row.classId)}
-                        className={`text-left font-medium text-sm hover:underline ${
-                          selectedClassId === row.classId ? 'text-[#002F67]' : 'text-[#002F67]'
-                        }`}
+                        onClick={() => setSelectedClassId(selected ? null : row.classId)}
+                        className="text-left font-medium text-sm text-[#002F67] hover:underline whitespace-nowrap"
                       >
                         Yr{row.yearLevel} {row.subject}
                       </button>
-                      <div className="text-[11px] text-gray-500">
+                      <div className="text-[11px] text-gray-500 whitespace-nowrap">
                         {row.staff} · {row.dayOfWeek != null ? DAYS[row.dayOfWeek] : '?'} {row.startTime}–{row.endTime}
                       </div>
                     </td>
@@ -207,7 +214,7 @@ export function TermGridView({ termId }: { termId: number }) {
                       )
                     })}
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           </div>
@@ -343,13 +350,25 @@ function SessionCard({ detail, onClose }: { detail: SessionDetail | null; onClos
           </div>
 
           {detail.attendances.length > 0 && (
-            <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 text-xs">
-              <div className="font-semibold text-gray-700 mb-1">Attendance</div>
-              <div className="text-gray-500">
-                {detail.attendances.filter(a => a.present).length} present ·{' '}
-                {detail.attendances.filter(a => !a.present && a.notifiedAbsent).length} notified absent ·{' '}
-                {detail.attendances.filter(a => !a.present && !a.notifiedAbsent).length} absent
+            <div>
+              <div className="flex items-baseline justify-between mb-1.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Attendance</div>
+                <div className="text-[10px] text-gray-400 tabular-nums">
+                  {detail.attendances.filter(a => a.present).length}/{detail.attendances.length}
+                </div>
               </div>
+              <ul className="space-y-1">
+                {detail.attendances.map(a => {
+                  const name = a.student.lastName ? `${a.student.name} ${a.student.lastName}` : a.student.name
+                  return (
+                    <li key={a.student.id} className="flex items-center gap-1.5 text-xs">
+                      <PresenceBadge present={a.present} notified={a.notifiedAbsent} />
+                      <span className="flex-1 min-w-0 truncate text-gray-700">{name}</span>
+                      {a.homework && <HomeworkBadge status={a.homework} />}
+                    </li>
+                  )
+                })}
+              </ul>
             </div>
           )}
 
@@ -381,5 +400,40 @@ function Line({ icon: Icon, label, value }: {
         <div className="text-gray-800">{value}</div>
       </div>
     </div>
+  )
+}
+
+function PresenceBadge({ present, notified }: { present: boolean; notified: boolean }) {
+  if (present) {
+    return (
+      <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-emerald-100 text-emerald-700 text-[10px] font-bold" title="Present">Y</span>
+    )
+  }
+  if (notified) {
+    return (
+      <span className="inline-flex h-4 items-center justify-center rounded bg-amber-100 text-amber-700 text-[10px] font-bold px-1" title="Notified absent">N*</span>
+    )
+  }
+  return (
+    <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-rose-100 text-rose-700 text-[10px] font-bold" title="Absent">N</span>
+  )
+}
+
+const HOMEWORK_STYLES: Record<string, { label: string; cls: string }> = {
+  UNATTEMPTED:  { label: 'HW—',  cls: 'bg-gray-100  text-gray-500'    },
+  INCOMPLETE:   { label: 'HW~',  cls: 'bg-amber-100 text-amber-700'   },
+  SATISFACTORY: { label: 'HW✓',  cls: 'bg-blue-100  text-blue-700'    },
+  EXCELLENT:    { label: 'HW★',  cls: 'bg-emerald-100 text-emerald-700' },
+}
+
+function HomeworkBadge({ status }: { status: string }) {
+  const s = HOMEWORK_STYLES[status] ?? { label: status, cls: 'bg-gray-100 text-gray-500' }
+  return (
+    <span
+      className={`inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold tracking-wide ${s.cls}`}
+      title={`Homework: ${status.toLowerCase()}`}
+    >
+      {s.label}
+    </span>
   )
 }
