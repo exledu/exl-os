@@ -1396,6 +1396,7 @@ function ClassCreateModal({ lookups, term, onClose, onCreated }: {
   onClose:  () => void
   onCreated: () => void
 }) {
+  const [isRecurring, setIsRecurring] = useState(true)
   const [subjectId,   setSubjectId]   = useState<number | ''>('')
   const [yearLevelId, setYearLevelId] = useState<number | ''>('')
   const [staffId,     setStaffId]     = useState<number | ''>('')
@@ -1404,15 +1405,16 @@ function ClassCreateModal({ lookups, term, onClose, onCreated }: {
   const [dayOfWeek,   setDayOfWeek]   = useState<number | ''>('')
   const [startTime,   setStartTime]   = useState('')
   const [startDate,   setStartDate]   = useState(term.startDate)
+  const [sessionDate, setSessionDate] = useState('')
   const [busy, setBusy] = useState(false)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (subjectId === '' || yearLevelId === '' || staffId === '' || dayOfWeek === '' || !startTime) return
+    if (subjectId === '' || yearLevelId === '' || staffId === '' || !startTime) return
+    if (isRecurring && dayOfWeek === '')  return
+    if (!isRecurring && !sessionDate)     return
     setBusy(true)
     try {
-      // Create the class WITHOUT recurrenceStart so POST /api/classes doesn't
-      // auto-seed a positional first term — the term system will slot it in.
       const createRes = await fetch('/api/classes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1420,25 +1422,31 @@ function ClassCreateModal({ lookups, term, onClose, onCreated }: {
           subjectId, yearLevelId, staffId,
           roomId:      roomId === '' ? null : roomId,
           maxCapacity,
-          isRecurring: true,
-          dayOfWeek,
+          isRecurring,
+          // Recurring: no recurrenceStart so the legacy first-term seeder
+          // doesn't fire — /terms/[id]/slot-class handles seeding below.
+          // One-off: send sessionDate so POST /api/classes' createOneOffSession
+          // helper fires and creates the single trial ClassSession.
+          dayOfWeek:       isRecurring ? dayOfWeek : null,
           startTime,
           recurrenceStart: null,
-          sessionDate:     null,
+          sessionDate:     isRecurring ? null : sessionDate,
         }),
       })
       if (!createRes.ok) { alert('Failed to create class'); setBusy(false); return }
       const created = await createRes.json() as { id: number }
 
-      // Slot into the current term starting from the user's chosen date.
-      const slotRes = await fetch(`/api/terms/${term.id}/slot-class`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ classId: created.id, fromDate: startDate }),
-      })
-      if (!slotRes.ok) {
-        const j = await slotRes.json().catch(() => ({}))
-        alert(`Class created but slotting failed: ${j.error ?? 'unknown'}`)
+      if (isRecurring) {
+        // Slot into the current term starting from the user's chosen date.
+        const slotRes = await fetch(`/api/terms/${term.id}/slot-class`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ classId: created.id, fromDate: startDate }),
+        })
+        if (!slotRes.ok) {
+          const j = await slotRes.json().catch(() => ({}))
+          alert(`Class created but slotting failed: ${j.error ?? 'unknown'}`)
+        }
       }
       onCreated()
     } finally { setBusy(false) }
@@ -1457,8 +1465,32 @@ function ClassCreateModal({ lookups, term, onClose, onCreated }: {
   })()
 
   return (
-    <ModalShell title="New class" subtitle={`Will slot into ${term.name}`} onClose={onClose}>
+    <ModalShell
+      title="New class"
+      subtitle={isRecurring ? `Will slot into ${term.name}` : `Trial / one-off session`}
+      onClose={onClose}
+    >
       <form onSubmit={submit} className="space-y-3">
+        <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 text-xs">
+          <button
+            type="button"
+            onClick={() => setIsRecurring(true)}
+            className={`rounded-md px-3 py-1 font-medium transition-colors ${
+              isRecurring ? 'bg-white shadow-sm text-[#002F67]' : 'text-gray-500'
+            }`}
+          >
+            Recurring
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsRecurring(false)}
+            className={`rounded-md px-3 py-1 font-medium transition-colors ${
+              !isRecurring ? 'bg-white shadow-sm text-[#002F67]' : 'text-gray-500'
+            }`}
+          >
+            Trial / one-off
+          </button>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <label className="block text-xs">
             <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Subject</span>
@@ -1504,36 +1536,59 @@ function ClassCreateModal({ lookups, term, onClose, onCreated }: {
           </label>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block text-xs">
-            <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Day</span>
-            <select value={dayOfWeek} onChange={e => setDayOfWeek(Number(e.target.value))} required
-              className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm">
-              <option value="" disabled>Choose…</option>
-              {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
-            </select>
-          </label>
-          <label className="block text-xs">
-            <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Start time</span>
-            <input type="time" required value={startTime}
-              onChange={e => setStartTime(e.target.value)}
-              className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm" />
-          </label>
-        </div>
+        {isRecurring ? (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-xs">
+                <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Day</span>
+                <select value={dayOfWeek} onChange={e => setDayOfWeek(Number(e.target.value))} required
+                  className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm">
+                  <option value="" disabled>Choose…</option>
+                  {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                </select>
+              </label>
+              <label className="block text-xs">
+                <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Start time</span>
+                <input type="time" required value={startTime}
+                  onChange={e => setStartTime(e.target.value)}
+                  className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm" />
+              </label>
+            </div>
 
-        <label className="block text-xs">
-          <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">
-            Slot from date
-          </span>
-          <input type="date" required value={startDate}
-            min={minDate} max={maxDate}
-            onChange={e => setStartDate(e.target.value)}
-            className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm" />
-          <p className="mt-1 text-[10px] text-gray-500">
-            Sessions will be seeded from the week this date falls in through W{term.weeks}. End time
-            derives from year level.
-          </p>
-        </label>
+            <label className="block text-xs">
+              <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">
+                Slot from date
+              </span>
+              <input type="date" required value={startDate}
+                min={minDate} max={maxDate}
+                onChange={e => setStartDate(e.target.value)}
+                className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm" />
+              <p className="mt-1 text-[10px] text-gray-500">
+                Sessions will be seeded from the week this date falls in through W{term.weeks}. End time
+                derives from year level.
+              </p>
+            </label>
+          </>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-xs">
+              <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Trial date</span>
+              <input type="date" required value={sessionDate}
+                onChange={e => setSessionDate(e.target.value)}
+                className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm" />
+            </label>
+            <label className="block text-xs">
+              <span className="block text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Start time</span>
+              <input type="time" required value={startTime}
+                onChange={e => setStartTime(e.target.value)}
+                className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm" />
+            </label>
+            <p className="col-span-2 text-[10px] text-gray-500">
+              A single trial session. Once the family commits, open the session and use
+              <strong> Convert trial to recurring class</strong> to seed the rest of the term.
+            </p>
+          </div>
+        )}
 
         <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
           <button type="button" onClick={onClose} className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
