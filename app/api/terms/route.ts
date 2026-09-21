@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   if (!session) return new Response('Unauthorized', { status: 401 })
   const body = await request.json() as {
     name: string; year: number; termNumber: number; startDate: string; weeks?: number
-    classIds?: number[]
+    classIds?: number[]; incrementYearIds?: number[]
   }
   if (!body.name || !body.year || !body.termNumber || !body.startDate) {
     return Response.json({ error: 'name, year, termNumber, startDate required' }, { status: 400 })
@@ -31,7 +31,8 @@ export async function POST(request: Request) {
       termNumber: Number(body.termNumber),
       startDate:  new Date(body.startDate + 'T00:00:00.000Z'),
       weeks:      body.weeks ? Number(body.weeks) : undefined,
-      classIds:   Array.isArray(body.classIds) ? body.classIds.map(Number) : undefined,
+      classIds:         Array.isArray(body.classIds) ? body.classIds.map(Number) : undefined,
+      incrementYearIds: Array.isArray(body.incrementYearIds) ? body.incrementYearIds.map(Number) : undefined,
     })
     return Response.json(result, { status: 201 })
   } catch (e) {

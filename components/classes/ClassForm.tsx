@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { computeEndTime, durationLabelForYear } from '@/lib/class-duration'
 
 interface Subject { id: number; name: string }
 interface YearLevel { id: number; level: number }
@@ -52,7 +53,7 @@ export function ClassForm({ initial }: { initial?: ClassData }) {
   const [maxCapacity, setMaxCapacity] = useState(initial?.maxCapacity?.toString() ?? '10')
   const [dayOfWeek, setDayOfWeek] = useState(initial?.dayOfWeek?.toString() ?? '')
   const [startTime, setStartTime] = useState(initial?.startTime ?? '')
-  const [endTime, setEndTime] = useState(initial?.endTime ?? '')
+  // endTime is server-derived from startTime + year duration — no state needed.
   const [recurrenceStart, setRecurrenceStart] = useState(toDateInput(initial?.recurrenceStart))
   const [sessionDate, setSessionDate] = useState(toDateInput(initial?.sessionDate))
 
@@ -84,7 +85,7 @@ export function ClassForm({ initial }: { initial?: ClassData }) {
       isRecurring,
       dayOfWeek: isRecurring ? Number(dayOfWeek) : null,
       startTime: startTime || null,
-      endTime: endTime || null,
+      // endTime omitted — server derives from startTime + year level duration
       recurrenceStart: isRecurring && recurrenceStart ? recurrenceStart : null,
       sessionDate: !isRecurring && sessionDate ? sessionDate : null,
     }
@@ -201,17 +202,30 @@ export function ClassForm({ initial }: { initial?: ClassData }) {
         </div>
       </div>
 
-      {/* Time fields */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1.5">
-          <Label>Start Time</Label>
-          <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} required />
-        </div>
-        <div className="space-y-1.5">
-          <Label>End Time</Label>
-          <Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} required />
-        </div>
-      </div>
+      {/* Time fields — endTime is derived from year level */}
+      {(() => {
+        const yl = yearLevels.find(y => y.id.toString() === yearLevelId)?.level
+        const derived = yl != null && startTime ? computeEndTime(startTime, yl) : ''
+        return (
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Start Time</Label>
+              <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} required />
+            </div>
+            <div className="space-y-1.5">
+              <Label>End Time <span className="text-xs font-normal text-gray-400">(auto)</span></Label>
+              <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                <span className="tabular-nums">{derived || '—'}</span>
+                {yl != null && (
+                  <span className="text-[11px] text-gray-500">
+                    · Yr{yl} = {durationLabelForYear(yl)}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Recurring fields */}
       {isRecurring && (

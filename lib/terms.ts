@@ -17,10 +17,19 @@ interface CreateTermInput {
   /** If given, only these classIds are seeded. If omitted, every non-archived
    *  recurring class is seeded (backwards compat). Empty array = seed none. */
   classIds?:  number[]
+  /** Classes to bump year+1 BEFORE seeding sessions (Yr11 → Yr12 at T3, Yr7-10
+   *  → +1 at T1 next year, etc). Must be a subset of classIds. */
+  incrementYearIds?: number[]
 }
 
 export async function createTerm(input: CreateTermInput) {
   const weeks = input.weeks ?? 10
+
+  // Apply year-level increments first so seeded sessions inherit the new year.
+  if (input.incrementYearIds && input.incrementYearIds.length > 0) {
+    await incrementClassYears(input.incrementYearIds)
+  }
+
   const term  = await prisma.term.create({
     data: {
       name:       input.name,
@@ -32,6 +41,32 @@ export async function createTerm(input: CreateTermInput) {
   })
   const seeded = await seedTermForAllClasses(term.id, input.classIds)
   return { term, seeded }
+}
+
+/**
+ * Bump each class's yearLevel by +1. Yr 12 → Yr 12 (capped, no-op). Fails
+ * gracefully if a target YearLevel row doesn't exist.
+ */
+async function incrementClassYears(classIds: number[]) {
+  const classes = await prisma.class.findMany({
+    where:  { id: { in: classIds } },
+    select: { id: true, yearLevel: { select: { id: true, level: true } } },
+  })
+  // Map target level → YearLevel.id
+  const targetLevels = Array.from(new Set(classes.map(c => c.yearLevel.level + 1)))
+  const yearLevels = await prisma.yearLevel.findMany({ where: { level: { in: targetLevels } } })
+  const levelToId = new Map(yearLevels.map(y => [y.level, y.id]))
+
+  for (const c of classes) {
+    const targetLevel = c.yearLevel.level + 1
+    if (targetLevel > 12) continue   // don't bump past Yr 12
+    const newYearLevelId = levelToId.get(targetLevel)
+    if (!newYearLevelId) continue
+    await prisma.class.update({
+      where: { id: c.id },
+      data:  { yearLevelId: newYearLevelId },
+    })
+  }
 }
 
 /**

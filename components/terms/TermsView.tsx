@@ -123,6 +123,7 @@ function CreateTermModal({ onClose, onCreated, onError }: {
   const [saving, setSaving]         = useState(false)
   const [classes, setClasses]       = useState<ClassOption[]>([])
   const [selected, setSelected]     = useState<Set<number>>(new Set())
+  const [increment, setIncrement]   = useState<Set<number>>(new Set())
   const [loadingClasses, setLoadingClasses] = useState(true)
 
   const name = `T${termNumber} ${year}`
@@ -158,6 +159,13 @@ function CreateTermModal({ onClose, onCreated, onError }: {
   function toggleAll() {
     setSelected(prev => prev.size === classes.length ? new Set() : new Set(classes.map(c => c.id)))
   }
+  function toggleIncrement(id: number) {
+    setIncrement(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -168,7 +176,8 @@ function CreateTermModal({ onClose, onCreated, onError }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name, year, termNumber, startDate, weeks,
-          classIds: Array.from(selected),
+          classIds:          Array.from(selected),
+          incrementYearIds:  Array.from(increment).filter(id => selected.has(id)),
         }),
       })
       if (!res.ok) {
@@ -260,22 +269,47 @@ function CreateTermModal({ onClose, onCreated, onError }: {
             ) : classes.length === 0 ? (
               <div className="p-4 text-xs text-gray-400 text-center">No recurring classes found.</div>
             ) : (
-              classes.map(c => (
-                <label key={c.id} className="flex items-center gap-2 px-3 py-1.5 border-t first:border-t-0 border-gray-100 text-sm hover:bg-blue-50/40 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(c.id)}
-                    onChange={() => toggle(c.id)}
-                    className="rounded"
-                  />
-                  <span className="flex-1 flex items-center gap-2 min-w-0">
-                    <span className="text-gray-800 truncate">Yr{c.yearLevel.level} {c.subject.name}</span>
-                    <span className="text-xs text-gray-400 truncate">
-                      {c.staff.name} · {c.dayOfWeek != null ? DAYS[c.dayOfWeek] : '?'} {c.startTime}–{c.endTime}
-                    </span>
-                  </span>
-                </label>
-              ))
+              classes.map(c => {
+                const canIncrement = c.yearLevel.level < 12
+                const incrementActive = increment.has(c.id) && selected.has(c.id)
+                return (
+                  <div key={c.id} className="flex items-center gap-2 px-3 py-1.5 border-t first:border-t-0 border-gray-100 text-sm hover:bg-blue-50/40">
+                    <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(c.id)}
+                        onChange={() => toggle(c.id)}
+                        className="rounded"
+                      />
+                      <span className="flex-1 flex items-center gap-2 min-w-0">
+                        <span className={`truncate ${incrementActive ? 'text-emerald-800 font-medium' : 'text-gray-800'}`}>
+                          Yr{c.yearLevel.level}
+                          {incrementActive && <> → <span className="font-semibold">Yr{c.yearLevel.level + 1}</span></>}
+                          {' '}{c.subject.name}
+                        </span>
+                        <span className="text-xs text-gray-400 truncate">
+                          {c.staff.name} · {c.dayOfWeek != null ? DAYS[c.dayOfWeek] : '?'} {c.startTime}
+                        </span>
+                      </span>
+                    </label>
+                    {canIncrement && (
+                      <button
+                        type="button"
+                        onClick={() => toggleIncrement(c.id)}
+                        disabled={!selected.has(c.id)}
+                        title={`Bump to Yr${c.yearLevel.level + 1} before seeding`}
+                        className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide border transition-colors ${
+                          incrementActive
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-white text-gray-500 border-gray-200 hover:border-emerald-400 hover:text-emerald-700 disabled:opacity-30'
+                        }`}
+                      >
+                        {incrementActive ? '↗ +1yr' : '+1yr'}
+                      </button>
+                    )}
+                  </div>
+                )
+              })
             )}
           </div>
           <div className="bg-gray-50 border-t border-gray-200 px-3 py-1.5 text-[11px] text-gray-500">

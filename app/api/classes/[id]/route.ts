@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db'
 import { initFirstTerm, rescheduleFutureSessions, createOneOffSession } from '@/lib/sessions'
+import { computeEndTime } from '@/lib/class-duration'
 
 export async function GET(_req: Request, ctx: RouteContext<'/api/classes/[id]'>) {
   const { id } = await ctx.params
@@ -21,6 +22,10 @@ export async function PATCH(request: Request, ctx: RouteContext<'/api/classes/[i
   const { id } = await ctx.params
   const body = await request.json()
 
+  const yl = await prisma.yearLevel.findUnique({ where: { id: Number(body.yearLevelId) } })
+  if (!yl) return Response.json({ error: 'Invalid yearLevelId' }, { status: 400 })
+  const derivedEndTime = body.startTime ? computeEndTime(body.startTime, yl.level) : null
+
   const cls = await prisma.class.update({
     where: { id: Number(id) },
     data: {
@@ -32,7 +37,7 @@ export async function PATCH(request: Request, ctx: RouteContext<'/api/classes/[i
       isRecurring: body.isRecurring,
       dayOfWeek: body.isRecurring ? Number(body.dayOfWeek) : null,
       startTime: body.startTime ?? null,
-      endTime: body.endTime ?? null,
+      endTime: derivedEndTime,
       recurrenceStart: body.isRecurring && body.recurrenceStart ? new Date(body.recurrenceStart) : null,
       sessionDate: !body.isRecurring && body.sessionDate ? new Date(body.sessionDate) : null,
     },

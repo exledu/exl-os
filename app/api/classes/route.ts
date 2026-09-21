@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db'
 import { initFirstTerm, createOneOffSession } from '@/lib/sessions'
+import { computeEndTime } from '@/lib/class-duration'
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -22,6 +23,11 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const body = await request.json()
 
+  // Look up year level to derive endTime from startTime + duration rule.
+  const yl = await prisma.yearLevel.findUnique({ where: { id: Number(body.yearLevelId) } })
+  if (!yl) return Response.json({ error: 'Invalid yearLevelId' }, { status: 400 })
+  const derivedEndTime = body.startTime ? computeEndTime(body.startTime, yl.level) : null
+
   const cls = await prisma.class.create({
     data: {
       subjectId: Number(body.subjectId),
@@ -32,7 +38,7 @@ export async function POST(request: Request) {
       isRecurring: body.isRecurring,
       dayOfWeek: body.isRecurring ? Number(body.dayOfWeek) : null,
       startTime: body.startTime ?? null,
-      endTime: body.endTime ?? null,
+      endTime: derivedEndTime,
       recurrenceStart: body.isRecurring && body.recurrenceStart ? new Date(body.recurrenceStart) : null,
       sessionDate: !body.isRecurring && body.sessionDate ? new Date(body.sessionDate) : null,
     },
