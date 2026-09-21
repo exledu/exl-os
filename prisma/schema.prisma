@@ -111,12 +111,35 @@ model ClassSession {
   originalDate DateTime? @db.Date
   staffId      Int?      @map("tutorId")
   staff        Staff?    @relation(fields: [staffId], references: [id])
+  // First-class term membership. Nullable so pre-migration sessions and
+  // genuine one-offs (trials without an extension) still work.
+  termId       Int?
+  term         Term?     @relation(fields: [termId], references: [id], onDelete: SetNull)
+  weekNumber   Int?      // 1..10 inside the term
   attendances  Attendance[]
   trials       TrialEnrolment[]
   // 0 = no reminders sent, 1 = initial DM (at session start), 2 = +30min follow-up, 3 = +40min final
   attendanceReminderLevel Int @default(0)
   // Set when the first attendance modal submit fires parent emails. Subsequent submits skip emails.
   parentEmailsSentAt      DateTime?
+
+  @@index([termId, weekNumber])
+}
+
+// A shared calendar term (10 weeks by default). All recurring classes hang off
+// the same term so W1..W10 always mean the same thing across the centre.
+model Term {
+  id         Int      @id @default(autoincrement())
+  name       String   @unique   // "T4 2026"
+  year       Int
+  termNumber Int      // 1..4
+  startDate  DateTime @db.Date  // Monday of W1
+  weeks      Int      @default(10)
+  sessions   ClassSession[]
+  createdAt  DateTime @default(now())
+
+  @@unique([year, termNumber])
+  @@index([startDate])
 }
 
 model TrialEnrolment {

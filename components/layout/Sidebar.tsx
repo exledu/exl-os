@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { CalendarDays, BookOpen, Users, GraduationCap, LogOut, FileText, TrendingUp, Wallet, Thermometer } from 'lucide-react'
+import { CalendarDays, BookOpen, Users, GraduationCap, LogOut, FileText, TrendingUp, Wallet, Thermometer, Grid3x3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { signOut } from 'next-auth/react'
 import Image from 'next/image'
@@ -10,6 +10,7 @@ import Image from 'next/image'
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: CalendarDays },
   { href: '/classes',   label: 'Classes',   icon: BookOpen },
+  { href: '/terms',     label: 'Terms',     icon: Grid3x3 },
   { href: '/staff',     label: 'Staff',      icon: Users },
   { href: '/students',  label: 'Students',  icon: GraduationCap },
   { href: '/leads',     label: 'Leads',     icon: Thermometer },
