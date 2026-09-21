@@ -14,7 +14,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const [classes, sessions] = await Promise.all([
     prisma.class.findMany({
-      where: { archived: false, isRecurring: true },
+      where: {
+        archived: false,
+        isRecurring: true,
+        // Only classes that actually have a session in this term. Excluded
+        // classes (Yr 12 opted out, etc.) don't render a mostly-empty row.
+        sessions: { some: { termId: term.id } },
+      },
       include: {
         subject:   { select: { name: true } },
         yearLevel: { select: { level: true } },
