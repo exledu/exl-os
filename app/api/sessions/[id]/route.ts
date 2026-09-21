@@ -2,6 +2,30 @@ import { prisma } from '@/lib/db'
 import { startOfDay } from 'date-fns'
 import { logAction, getActorStaffId } from '@/lib/staff-actions'
 
+export async function GET(_req: Request, ctx: RouteContext<'/api/sessions/[id]'>) {
+  const { id } = await ctx.params
+  const session = await prisma.classSession.findUnique({
+    where: { id: Number(id) },
+    include: {
+      yearLevel: { select: { level: true } },
+      term:      { select: { id: true, name: true } },
+      staff:     { select: { id: true, name: true } },
+      class: {
+        include: {
+          subject:   { select: { name: true } },
+          yearLevel: { select: { level: true } },
+          staff:     { select: { id: true, name: true } },
+          room:      { select: { id: true, name: true } },
+          _count:    { select: { enrolments: true } },
+        },
+      },
+      attendances: { select: { present: true, notifiedAbsent: true, homework: true } },
+    },
+  })
+  if (!session) return new Response('Not found', { status: 404 })
+  return Response.json(session)
+}
+
 export async function PATCH(request: Request, ctx: RouteContext<'/api/sessions/[id]'>) {
   const { id } = await ctx.params
   const body = await request.json()
