@@ -244,7 +244,12 @@ export function TermGridView({ termId }: { termId: number }) {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setStaffPanelOpen(v => !v)}
+            onClick={() => {
+              // Clear any staff filter every time the toggle is pressed, whether
+              // opening (start on the list) or closing (grid returns to all classes).
+              setSelectedStaffId(null)
+              setStaffPanelOpen(v => !v)
+            }}
             className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium ${
               staffPanelOpen
                 ? 'border-[#002F67] bg-blue-50 text-[#002F67]'
