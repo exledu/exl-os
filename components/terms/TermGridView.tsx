@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, User, MapPin, Users, CalendarClock, Ban, Trash2, Archive, Pencil, Plus, UserPlus, Repeat, ChevronLeft, ChevronRight, PlusCircle, UsersRound, Mail, Phone, ArrowLeft, GraduationCap } from 'lucide-react'
+import { X, User, MapPin, Users, CalendarClock, Ban, Trash2, Archive, Pencil, Plus, UserPlus, Repeat, ChevronLeft, ChevronRight, ChevronDown, PlusCircle, UsersRound, Mail, Phone, ArrowLeft } from 'lucide-react'
 import { CreateTermModal } from './TermsView'
+import { InlineLoading } from '@/components/ui/spinner'
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -197,7 +198,7 @@ export function TermGridView({ termId }: { termId: number }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [termId, gridTick, showArchived])
 
-  if (loading) return <div className="rounded-2xl border border-gray-200 bg-white p-8 text-sm text-gray-500">Loading…</div>
+  if (loading) return <div className="rounded-2xl border border-gray-200 bg-white p-8"><InlineLoading label="Loading term…" /></div>
   if (!data)   return <div className="rounded-2xl border border-gray-200 bg-white p-8 text-sm text-gray-500">Term not found.</div>
 
   const { term, grid } = data
@@ -295,7 +296,8 @@ export function TermGridView({ termId }: { termId: number }) {
           </aside>
         )}
 
-        <div className={`overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm ${staffPanelOpen ? 'flex-1 min-w-0' : ''}`}>
+        <div className={staffPanelOpen ? 'flex-1 min-w-0 space-y-4' : ''}>
+        <div className={`overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm`}>
         <table className="text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
@@ -351,6 +353,11 @@ export function TermGridView({ termId }: { termId: number }) {
             ))}
           </tbody>
         </table>
+        </div>
+
+        {staffPanelOpen && selectedStaffId != null && (
+          <StaffPayrollHistory termId={termId} staffId={selectedStaffId} />
+        )}
         </div>
       </div>
 
@@ -551,9 +558,9 @@ function ClassModal({ classId, cached, onCache, lookups, onClose, onChanged }: {
   return (
     <ModalShell title={mode === 'edit' ? 'Edit class' : 'Class'} onClose={onClose}>
       {!detail ? (
-        <div className="py-8 text-center text-xs text-gray-400">Loading…</div>
+        <InlineLoading className="py-8" />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-4 animate-in fade-in-0 duration-200">
           <div className="flex items-start justify-between gap-2">
             <div>
               <div className="text-xl font-semibold text-[#002F67]">
@@ -871,9 +878,9 @@ function SessionModal({ sessionId, cached, onCache, staffOpts, onClose, onStruct
       onClose={onClose}
     >
       {!detail ? (
-        <div className="py-8 text-center text-xs text-gray-400">Loading…</div>
+        <InlineLoading className="py-8" />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-4 animate-in fade-in-0 duration-200">
           <div className="flex items-start justify-between gap-2">
             <div className="text-xl font-semibold text-[#002F67]">
               Yr{detail.yearLevel?.level ?? detail.class.yearLevel.level} {detail.class.subject.name}
@@ -1236,7 +1243,7 @@ function AddStudentInline({ excludeIds, onAdd, busy }: {
       </div>
       <div className="max-h-40 overflow-y-auto rounded-md bg-white border border-gray-100">
         {rows === null ? (
-          <div className="p-2 text-[11px] text-gray-400">Loading…</div>
+          <InlineLoading className="py-2" />
         ) : filtered.length === 0 ? (
           <div className="p-2 text-[11px] text-gray-400 italic">
             {q ? 'No matches.' : 'All students are already enrolled.'}
@@ -1336,6 +1343,128 @@ function ConvertTrialInline({ classId, trialDate, onConverted }: {
   )
 }
 
+// ── Staff payroll history (bottom of the right column) ──────────────────
+
+interface FortnightPay {
+  start:      string
+  end:        string
+  totalHours: number
+  totalPay:   number
+  sessions: {
+    sessionId: number
+    date:      string
+    startTime: string
+    endTime:   string
+    className: string
+    students:  number
+    hours:     number
+    rate:      number
+    pay:       number
+    isCover:   boolean
+  }[]
+}
+
+function StaffPayrollHistory({ termId, staffId }: { termId: number; staffId: number }) {
+  const [data, setData] = useState<FortnightPay[] | null>(null)
+  const [expanded, setExpanded] = useState<string | null>(null)
+
+  useEffect(() => {
+    setData(null)
+    setExpanded(null)
+    fetch(`/api/terms/${termId}/staff/${staffId}/payroll`)
+      .then(r => r.ok ? r.json() : { fortnights: [] })
+      .then(j => setData(j.fortnights))
+  }, [termId, staffId])
+
+  const total = data?.reduce((sum, f) => sum + f.totalPay, 0) ?? 0
+
+  function fmtMoney(n: number) {
+    return n.toLocaleString('en-AU', { style: 'currency', currency: 'AUD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+  function fmtRange(a: string, b: string) {
+    const fmt = (s: string) => {
+      const [y, m, d] = s.split('-').map(Number)
+      return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
+    }
+    return `${fmt(a)} → ${fmt(b)}`
+  }
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+      <div className="flex items-baseline justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Fortnight payroll · this term</span>
+        <span className="text-sm font-semibold text-[#002F67] tabular-nums">{fmtMoney(total)}</span>
+      </div>
+      {data === null ? (
+        <div className="p-4 text-xs text-gray-400">Loading…</div>
+      ) : data.length === 0 ? (
+        <div className="p-4 text-xs text-gray-400 italic">No fortnights overlap this term.</div>
+      ) : (
+        <ul className="divide-y divide-gray-100">
+          {data.map(f => {
+            const isOpen = expanded === f.start
+            return (
+              <li key={f.start}>
+                <button
+                  onClick={() => setExpanded(isOpen ? null : f.start)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-50"
+                >
+                  {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-gray-400" /> : <ChevronRight className="h-3.5 w-3.5 text-gray-400" />}
+                  <span className="flex-1 text-sm text-gray-700">{fmtRange(f.start, f.end)}</span>
+                  <span className="text-xs text-gray-500 tabular-nums">
+                    {f.sessions.length} sess · {f.totalHours.toFixed(1)} hrs
+                  </span>
+                  <span className="text-sm font-semibold text-[#002F67] tabular-nums w-24 text-right">
+                    {fmtMoney(f.totalPay)}
+                  </span>
+                </button>
+
+                {isOpen && (
+                  <div className="bg-gray-50/60 px-4 py-2">
+                    {f.sessions.length === 0 ? (
+                      <p className="text-xs text-gray-400 italic py-2">No sessions in this fortnight.</p>
+                    ) : (
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-left text-gray-500">
+                            <th className="py-1 font-medium">Date</th>
+                            <th className="py-1 font-medium">Time</th>
+                            <th className="py-1 font-medium">Class</th>
+                            <th className="py-1 font-medium text-right">Stu</th>
+                            <th className="py-1 font-medium text-right">Hrs</th>
+                            <th className="py-1 font-medium text-right">Rate</th>
+                            <th className="py-1 font-medium text-right">Pay</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {f.sessions.map(s => (
+                            <tr key={s.sessionId} className="border-t border-gray-200/70">
+                              <td className="py-1.5">{new Date(s.date + 'T00:00:00.000Z').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}</td>
+                              <td className="py-1.5 tabular-nums">{s.startTime}–{s.endTime}</td>
+                              <td className="py-1.5">
+                                {s.className}
+                                {s.isCover && <span className="ml-1.5 rounded bg-amber-100 px-1 py-0.5 text-[9px] font-medium text-amber-700">cover</span>}
+                              </td>
+                              <td className="py-1.5 tabular-nums text-right">{s.students}</td>
+                              <td className="py-1.5 tabular-nums text-right">{s.hours.toFixed(1)}</td>
+                              <td className="py-1.5 tabular-nums text-right">${s.rate}/hr</td>
+                              <td className="py-1.5 tabular-nums text-right font-medium">{fmtMoney(s.pay)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 // ── Staff panel (left-hand side of the grid) ─────────────────────────────
 
 function StaffPanel({ termId, selectedStaffId, onSelect, onClose }: {
@@ -1383,7 +1512,7 @@ function StaffPanel({ termId, selectedStaffId, onSelect, onClose }: {
       </div>
 
       {rows === null ? (
-        <div className="p-4 text-xs text-gray-400">Loading…</div>
+        <InlineLoading className="py-4" />
       ) : selected ? (
         // ── Detail view ──
         <div className="p-4 space-y-3">
