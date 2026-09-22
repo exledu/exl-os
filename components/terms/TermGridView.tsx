@@ -92,9 +92,12 @@ interface StaffFull  {
   email: string | null
   phone: string | null
   roles: string[]
-  _count: { classes: number }
-  avgStudentsPerClass: number
+  classes: number             // non-archived recurring, with sessions in THIS term
   totalStudents: number
+  avgStudentsPerClass: number
+  sessionsThisTerm: number    // effective teacher (covers included)
+  hoursThisTerm: number
+  payThisTerm: number
 }
 interface RoomOpt    { id: number; name: string }
 interface SubjectOpt { id: number; name: string }
@@ -279,6 +282,7 @@ export function TermGridView({ termId }: { termId: number }) {
         {staffPanelOpen && (
           <aside className="w-72 shrink-0">
             <StaffPanel
+              termId={termId}
               selectedStaffId={selectedStaffId}
               onSelect={setSelectedStaffId}
               onClose={() => { setStaffPanelOpen(false); setSelectedStaffId(null) }}
@@ -1329,7 +1333,8 @@ function ConvertTrialInline({ classId, trialDate, onConverted }: {
 
 // ── Staff panel (left-hand side of the grid) ─────────────────────────────
 
-function StaffPanel({ selectedStaffId, onSelect, onClose }: {
+function StaffPanel({ termId, selectedStaffId, onSelect, onClose }: {
+  termId: number
   selectedStaffId: number | null
   onSelect: (id: number | null) => void
   onClose: () => void
@@ -1338,10 +1343,10 @@ function StaffPanel({ selectedStaffId, onSelect, onClose }: {
   const [q, setQ] = useState('')
 
   useEffect(() => {
-    fetch('/api/staff')
+    fetch(`/api/terms/${termId}/staff`)
       .then(r => r.ok ? r.json() : [])
       .then(setRows)
-  }, [])
+  }, [termId])
 
   const selected = rows?.find(s => s.id === selectedStaffId) ?? null
 
@@ -1408,9 +1413,30 @@ function StaffPanel({ selectedStaffId, onSelect, onClose }: {
             )}
           </dl>
 
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <Stat label="Classes"          value={String(selected._count.classes)} />
-            <Stat label="Avg stu / class"  value={selected.avgStudentsPerClass.toString()} />
+          <div className="grid grid-cols-2 gap-2">
+            <Stat label="Classes"           value={String(selected.classes)} />
+            <Stat label="Avg stu / class"   value={selected.avgStudentsPerClass.toString()} />
+          </div>
+
+          <div className="pt-2 border-t border-gray-100">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1.5">
+              This term
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Stat label="Sessions taught" value={String(selected.sessionsThisTerm)} sub="includes covers" />
+              <Stat label="Hours"           value={selected.hoursThisTerm.toString()} />
+            </div>
+            <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800">
+                Projected pay
+              </div>
+              <div className="text-lg font-semibold text-emerald-900 tabular-nums">
+                ${selected.payThisTerm.toFixed(2)}
+              </div>
+              <div className="text-[10px] text-emerald-700/70">
+                Hours × per-session rate, based on current enrolments.
+              </div>
+            </div>
           </div>
 
           <div className="text-[11px] text-gray-500 pt-1 border-t border-gray-100">
@@ -1450,7 +1476,7 @@ function StaffPanel({ selectedStaffId, onSelect, onClose }: {
                         ))}
                       </div>
                       <div className="text-[10px] text-gray-500 mt-0.5">
-                        {s._count.classes} class{s._count.classes === 1 ? '' : 'es'} · {s.avgStudentsPerClass} stu/class
+                        {s.classes} class{s.classes === 1 ? '' : 'es'} · {s.sessionsThisTerm} sessions · ${s.payThisTerm.toFixed(0)}
                       </div>
                     </div>
                   </button>
@@ -1463,11 +1489,12 @@ function StaffPanel({ selectedStaffId, onSelect, onClose }: {
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="rounded-lg border border-gray-100 bg-gray-50 px-2 py-1.5">
       <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">{label}</div>
       <div className="text-sm font-semibold text-[#002F67] tabular-nums">{value}</div>
+      {sub && <div className="text-[9px] text-gray-400">{sub}</div>}
     </div>
   )
 }
