@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, User, MapPin, Users, CalendarClock, Ban, Trash2, Archive, Pencil, Plus, UserPlus, Repeat, ChevronLeft, ChevronRight, PlusCircle } from 'lucide-react'
+import { X, User, MapPin, Users, CalendarClock, Ban, Trash2, Archive, Pencil, Plus, UserPlus, Repeat, ChevronLeft, ChevronRight, PlusCircle, UsersRound, Mail, Phone, ArrowLeft, GraduationCap } from 'lucide-react'
 import { CreateTermModal } from './TermsView'
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -23,6 +23,7 @@ interface Row {
   subject:   string
   yearLevel: number
   staff:     string
+  staffId:   number
   dayOfWeek: number | null
   startTime: string | null
   endTime:   string | null
@@ -85,6 +86,16 @@ interface SessionDetail {
 }
 
 interface StaffOpt   { id: number; name: string }
+interface StaffFull  {
+  id: number
+  name: string
+  email: string | null
+  phone: string | null
+  roles: string[]
+  _count: { classes: number }
+  avgStudentsPerClass: number
+  totalStudents: number
+}
 interface RoomOpt    { id: number; name: string }
 interface SubjectOpt { id: number; name: string }
 interface StudentOpt {
@@ -154,6 +165,8 @@ export function TermGridView({ termId }: { termId: number }) {
   const [showArchived, setShowArchived] = useState(false)
   const [createTermOpen, setCreateTermOpen] = useState(false)
   const [createTermError, setCreateTermError] = useState<string | null>(null)
+  const [staffPanelOpen, setStaffPanelOpen] = useState(false)
+  const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null)
   const router = useRouter()
 
   // Ordered list of every term so we can compute prev/next relative to this one.
@@ -228,6 +241,17 @@ export function TermGridView({ termId }: { termId: number }) {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setStaffPanelOpen(v => !v)}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium ${
+              staffPanelOpen
+                ? 'border-[#002F67] bg-blue-50 text-[#002F67]'
+                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+            title="Open staff panel"
+          >
+            <UsersRound className="h-3.5 w-3.5" /> Staff
+          </button>
+          <button
             onClick={() => setShowArchived(v => !v)}
             className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium ${
               showArchived
@@ -251,7 +275,18 @@ export function TermGridView({ termId }: { termId: number }) {
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{createTermError}</div>
       )}
 
-      <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
+      <div className={staffPanelOpen ? 'flex gap-4 items-start' : ''}>
+        {staffPanelOpen && (
+          <aside className="w-72 shrink-0">
+            <StaffPanel
+              selectedStaffId={selectedStaffId}
+              onSelect={setSelectedStaffId}
+              onClose={() => { setStaffPanelOpen(false); setSelectedStaffId(null) }}
+            />
+          </aside>
+        )}
+
+        <div className={`overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm ${staffPanelOpen ? 'flex-1 min-w-0' : ''}`}>
         <table className="text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
@@ -262,7 +297,7 @@ export function TermGridView({ termId }: { termId: number }) {
             </tr>
           </thead>
           <tbody className="text-gray-700">
-            {grid.map(row => (
+            {grid.filter(r => selectedStaffId == null || r.staffId === selectedStaffId).map(row => (
               <tr key={row.classId} className={`border-t border-gray-100 ${row.archived ? 'opacity-50' : ''}`}>
                 <td className="sticky left-0 z-10 bg-white px-3 py-2 border-r border-gray-100 shadow-[2px_0_0_-1px_rgb(229_231_235)]">
                   <button
@@ -307,6 +342,7 @@ export function TermGridView({ termId }: { termId: number }) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       <p className="text-[11px] text-gray-500">
@@ -1287,6 +1323,151 @@ function ConvertTrialInline({ classId, trialDate, onConverted }: {
           {busy ? 'Converting…' : 'Convert'}
         </button>
       </div>
+    </div>
+  )
+}
+
+// ── Staff panel (left-hand side of the grid) ─────────────────────────────
+
+function StaffPanel({ selectedStaffId, onSelect, onClose }: {
+  selectedStaffId: number | null
+  onSelect: (id: number | null) => void
+  onClose: () => void
+}) {
+  const [rows, setRows] = useState<StaffFull[] | null>(null)
+  const [q, setQ] = useState('')
+
+  useEffect(() => {
+    fetch('/api/staff')
+      .then(r => r.ok ? r.json() : [])
+      .then(setRows)
+  }, [])
+
+  const selected = rows?.find(s => s.id === selectedStaffId) ?? null
+
+  function initials(name: string) {
+    return name.split(' ').filter(Boolean).slice(0, 2).map(p => p[0]?.toUpperCase() ?? '').join('')
+  }
+  function roleClass(role: string) {
+    return role === 'admin'
+      ? 'bg-blue-50  text-blue-700 border-blue-200'
+      : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  }
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm sticky top-4 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+        {selected ? (
+          <button
+            onClick={() => onSelect(null)}
+            className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-gray-500 hover:text-[#002F67]"
+          >
+            <ArrowLeft className="h-3 w-3" /> All staff
+          </button>
+        ) : (
+          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Staff</span>
+        )}
+        <button onClick={onClose} className="rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {rows === null ? (
+        <div className="p-4 text-xs text-gray-400">Loading…</div>
+      ) : selected ? (
+        // ── Detail view ──
+        <div className="p-4 space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-800 text-sm font-semibold">
+              {initials(selected.name)}
+            </div>
+            <div>
+              <div className="text-lg font-semibold text-[#002F67]">{selected.name}</div>
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {selected.roles.map(r => (
+                  <span key={r} className={`inline-block rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${roleClass(r)}`}>
+                    {r}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <dl className="space-y-1.5 text-sm">
+            {selected.email && (
+              <div className="flex items-start gap-2">
+                <Mail className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
+                <span className="text-gray-700 break-all">{selected.email}</span>
+              </div>
+            )}
+            {selected.phone && (
+              <div className="flex items-start gap-2">
+                <Phone className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
+                <span className="text-gray-700">{selected.phone}</span>
+              </div>
+            )}
+          </dl>
+
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <Stat label="Classes"          value={String(selected._count.classes)} />
+            <Stat label="Avg stu / class"  value={selected.avgStudentsPerClass.toString()} />
+          </div>
+
+          <div className="text-[11px] text-gray-500 pt-1 border-t border-gray-100">
+            Grid filtered to this tutor's classes only. Press <span className="font-medium text-gray-700">All staff</span> to clear.
+          </div>
+        </div>
+      ) : (
+        // ── List view ──
+        <div>
+          <div className="p-3 border-b border-gray-100">
+            <input
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              placeholder="Search staff…"
+              className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-200"
+            />
+          </div>
+          <ul className="max-h-[560px] overflow-y-auto divide-y divide-gray-100">
+            {rows
+              .filter(s => !q || s.name.toLowerCase().includes(q.toLowerCase()))
+              .map(s => (
+                <li key={s.id}>
+                  <button
+                    onClick={() => onSelect(s.id)}
+                    className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-blue-50/40"
+                  >
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-semibold shrink-0">
+                      {initials(s.name)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-[#002F67] truncate">{s.name}</div>
+                      <div className="flex flex-wrap gap-1 mt-0.5">
+                        {s.roles.map(r => (
+                          <span key={r} className={`inline-block rounded border px-1 py-0 text-[9px] font-semibold uppercase tracking-wide ${roleClass(r)}`}>
+                            {r}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="text-[10px] text-gray-500 mt-0.5">
+                        {s._count.classes} class{s._count.classes === 1 ? '' : 'es'} · {s.avgStudentsPerClass} stu/class
+                      </div>
+                    </div>
+                  </button>
+                </li>
+              ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50 px-2 py-1.5">
+      <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">{label}</div>
+      <div className="text-sm font-semibold text-[#002F67] tabular-nums">{value}</div>
     </div>
   )
 }

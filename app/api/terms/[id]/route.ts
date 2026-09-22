@@ -59,6 +59,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       subject:    cls.subject.name,
       yearLevel:  termYearLevel,
       staff:      cls.staff.name,
+      staffId:    cls.staff.id,
       dayOfWeek:  cls.dayOfWeek,
       startTime:  cls.startTime,
       endTime:    cls.endTime,
