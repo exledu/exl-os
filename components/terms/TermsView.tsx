@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Plus, Calendar, X } from 'lucide-react'
+import { InlineLoading } from '@/components/ui/spinner'
 
 interface TermRow {
   id:         number
@@ -57,13 +58,15 @@ export function TermsView() {
       )}
 
       {loading ? (
-        <div className="rounded-2xl border border-gray-200 bg-white p-8 text-sm text-gray-500">Loading…</div>
+        <div className="rounded-2xl border border-gray-200 bg-white p-8">
+          <InlineLoading label="Loading terms…" />
+        </div>
       ) : terms && terms.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
           No terms yet. Click <strong>New term</strong> to create your first one — pick the Monday of Week 1 and the system will seed sessions for every class across the next 10 weeks.
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 animate-in fade-in-0 duration-200">
           {terms?.map(t => (
             <Link
               key={t.id}
@@ -265,7 +268,7 @@ export function CreateTermModal({ onClose, onCreated, onError }: {
           </div>
           <div className="overflow-y-auto max-h-64">
             {loadingClasses ? (
-              <div className="p-4 text-xs text-gray-400 text-center">Loading…</div>
+              <InlineLoading className="py-4" />
             ) : classes.length === 0 ? (
               <div className="p-4 text-xs text-gray-400 text-center">No recurring classes found.</div>
             ) : (

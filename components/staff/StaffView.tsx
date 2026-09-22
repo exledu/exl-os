@@ -7,6 +7,7 @@ import {
   Plus, Mail, Phone, Pencil, X, Check, Users, BookOpen,
   Activity, Clock, MessageSquare, Monitor,
 } from 'lucide-react'
+import { PanelLoading } from '@/components/ui/spinner'
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -59,6 +60,7 @@ const NON_OS_ACTIONS = [
 
 export function StaffView() {
   const [staffList, setStaffList] = useState<StaffSummary[]>([])
+  const [listLoading, setListLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [detail, setDetail] = useState<StaffDetail | null>(null)
   const [actions, setActions] = useState<StaffAction[]>([])
@@ -85,6 +87,7 @@ export function StaffView() {
         _count: s._count ?? { classes: 0 },
       })))
     }
+    setListLoading(false)
   }
 
   async function loadDetail(id: number) {
@@ -188,44 +191,50 @@ export function StaffView() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {displayed.map(s => {
-            const active = selectedId === s.id
-            return (
-              <button
-                key={s.id}
-                onClick={() => selectStaff(s.id)}
-                className={`w-full text-left px-4 py-3.5 flex items-center gap-3 transition-all duration-200 border-b border-gray-50 ${
-                  active ? 'bg-blue-50/80 border-l-3 border-l-[#002F67]' : 'border-l-3 border-l-transparent hover:bg-gray-50'
-                }`}
-              >
-                <div className={`h-9 w-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
-                  s.roles.includes('admin') ? 'bg-[#002F67]/10 text-[#002F67]' : 'bg-emerald-50 text-emerald-700'
-                }`}>
-                  {s.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+          {listLoading ? (
+            <StaffListSkeleton />
+          ) : (
+            <>
+              {displayed.map(s => {
+                const active = selectedId === s.id
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => selectStaff(s.id)}
+                    className={`w-full text-left px-4 py-3.5 flex items-center gap-3 transition-all duration-200 border-b border-gray-50 ${
+                      active ? 'bg-blue-50/80 border-l-3 border-l-[#002F67]' : 'border-l-3 border-l-transparent hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className={`h-9 w-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
+                      s.roles.includes('admin') ? 'bg-[#002F67]/10 text-[#002F67]' : 'bg-emerald-50 text-emerald-700'
+                    }`}>
+                      {s.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-semibold truncate ${active ? 'text-[#002F67]' : 'text-gray-800'}`}>
+                        {s.name}
+                      </p>
+                      <div className="flex gap-1 mt-0.5">
+                        {s.roles.map(r => (
+                          <span key={r} className={`inline-flex rounded-full px-1.5 py-0 text-[10px] font-medium ${ROLE_COLOURS[r] ?? 'bg-gray-100 text-gray-600'}`}>
+                            {r.charAt(0).toUpperCase() + r.slice(1)}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {s._count.classes} class{s._count.classes !== 1 ? 'es' : ''}
+                        {s._count.classes > 0 && <span className="ml-1.5">· {s.avgStudentsPerClass ?? 0} stu/class</span>}
+                      </p>
+                    </div>
+                  </button>
+                )
+              })}
+              {displayed.length === 0 && (
+                <div className="py-16 text-center text-sm text-gray-400">
+                  {search ? `No staff match "${search}"` : 'No staff yet'}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-semibold truncate ${active ? 'text-[#002F67]' : 'text-gray-800'}`}>
-                    {s.name}
-                  </p>
-                  <div className="flex gap-1 mt-0.5">
-                    {s.roles.map(r => (
-                      <span key={r} className={`inline-flex rounded-full px-1.5 py-0 text-[10px] font-medium ${ROLE_COLOURS[r] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {r.charAt(0).toUpperCase() + r.slice(1)}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {s._count.classes} class{s._count.classes !== 1 ? 'es' : ''}
-                    {s._count.classes > 0 && <span className="ml-1.5">· {s.avgStudentsPerClass ?? 0} stu/class</span>}
-                  </p>
-                </div>
-              </button>
-            )
-          })}
-          {displayed.length === 0 && (
-            <div className="py-16 text-center text-sm text-gray-400">
-              {search ? `No staff match "${search}"` : 'No staff yet'}
-            </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -238,11 +247,9 @@ export function StaffView() {
             <p className="text-sm">Select a staff member to view their profile</p>
           </div>
         )}
-        {selectedId && loading && (
-          <div className="flex items-center justify-center h-full text-gray-400 text-sm">Loading…</div>
-        )}
+        {selectedId && loading && <PanelLoading />}
         {detail && !loading && (
-          <div className="max-w-3xl mx-auto p-6 space-y-5">
+          <div key={detail.id} className="max-w-3xl mx-auto p-6 space-y-5 animate-in fade-in-0 duration-200">
 
             {/* Header card */}
             <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
@@ -487,6 +494,22 @@ export function StaffView() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function StaffListSkeleton() {
+  return (
+    <div>
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="px-4 py-3.5 flex items-center gap-3 animate-pulse">
+          <div className="h-9 w-9 rounded-full bg-gray-100 flex-shrink-0" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <div className="h-3.5 w-28 rounded bg-gray-100" />
+            <div className="h-3 w-20 rounded bg-gray-100" />
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

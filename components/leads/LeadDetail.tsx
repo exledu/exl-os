@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Mail, Phone, MessageSquare, User } from 'lucide-react'
+import { PanelLoading } from '@/components/ui/spinner'
 
 interface Event {
   id:          number
@@ -85,13 +86,13 @@ export function LeadDetail({ leadId }: { leadId: number }) {
 
   useEffect(() => { load() }, [leadId])
 
-  if (loading) return <div className="rounded-2xl border border-gray-200 bg-white p-8 text-sm text-gray-500">Loading…</div>
+  if (loading) return <div className="rounded-2xl border border-gray-200 bg-white p-8"><PanelLoading /></div>
   if (!lead)   return <div className="rounded-2xl border border-gray-200 bg-white p-8 text-sm text-gray-500">Lead not found.</div>
 
   const displayName = lead.studentName ?? lead.parentName ?? lead.email
 
   return (
-    <div className="space-y-5">
+    <div key={lead.id} className="space-y-5 animate-in fade-in-0 duration-200">
       <Link href="/leads" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#002F67]">
         <ArrowLeft className="h-3.5 w-3.5" /> Back to leads
       </Link>

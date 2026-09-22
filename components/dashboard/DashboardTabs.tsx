@@ -1,10 +1,23 @@
 'use client'
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import { cn } from '@/lib/utils'
 import { MainDashboard } from './MainDashboard'
-import { CalendarView } from '@/components/calendar/CalendarView'
 import { KpiStrip } from './KpiStrip'
+import { PanelLoading } from '@/components/ui/spinner'
+
+const CalendarView = dynamic(
+  () => import('@/components/calendar/CalendarView').then(m => m.CalendarView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-xl border border-zinc-200 bg-white shadow-sm" style={{ height: 'calc(100vh - 140px)' }}>
+        <PanelLoading label="Loading calendar…" />
+      </div>
+    ),
+  },
+)
 
 const TABS = [
   { id: 'main', label: 'Main Dashboard' },
@@ -43,7 +56,9 @@ export function DashboardTabs() {
       <KpiStrip />
 
       {/* Content */}
-      {active === 'main' ? <MainDashboard /> : <CalendarView />}
+      <div key={active} className="animate-in fade-in-0 duration-200">
+        {active === 'main' ? <MainDashboard /> : <CalendarView />}
+      </div>
     </div>
   )
 }

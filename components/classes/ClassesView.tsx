@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import { Plus, Pencil, X, Check, ChevronDown, ChevronUp, UserCircle, Calendar, RefreshCw, ArrowRight, BookOpen, Trash2 } from 'lucide-react'
 import { subjectColour } from '@/lib/subject-colours'
+import { PanelLoading } from '@/components/ui/spinner'
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -89,6 +90,7 @@ export function ClassesView() {
   const searchParams = useSearchParams()
   const [classes, setClasses]       = useState<ClassSummary[]>([])
   const [archivedClasses, setArchivedClasses] = useState<ClassSummary[]>([])
+  const [listLoading, setListLoading] = useState(true)
   const [showArchived, setShowArchived] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [detail, setDetail]         = useState<ClassDetail | null>(null)
@@ -179,6 +181,7 @@ export function ClassesView() {
   useEffect(() => {
     async function init() {
       await Promise.all([loadClasses(), loadStaff()])
+      setListLoading(false)
       // Auto-select class from URL param (e.g. /classes?id=5)
       const idParam = searchParams.get('id')
       if (idParam) {
@@ -287,41 +290,47 @@ export function ClassesView() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {displayed.map(cls => {
-            const col = subjectColour(cls.subject.name, cls.yearLevel.level)
-            const active = selectedId === cls.id
-            return (
-              <button
-                key={cls.id}
-                onClick={() => selectClass(cls.id)}
-                className={`w-full text-left px-4 py-3.5 flex items-center gap-3 transition-all duration-200 border-b border-gray-50 ${
-                  active
-                    ? 'bg-blue-50/80 border-l-3 border-l-[#002F67]'
-                    : 'border-l-3 border-l-transparent hover:bg-gray-50'
-                }`}
-              >
-                <div
-                  className="h-3.5 w-3.5 rounded-full flex-shrink-0 shadow-sm"
-                  style={{ backgroundColor: col }}
-                />
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-semibold truncate ${active ? 'text-[#002F67]' : 'text-gray-800'}`}>
-                    Yr {cls.yearLevel.level} {cls.subject.name}
-                  </p>
-                  <p className="text-xs text-gray-400 truncate mt-0.5">
-                    {cls.staff.name} · {scheduleLabel(cls)}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {cls._count.enrolments}/{cls.maxCapacity} enrolled
-                  </p>
+          {listLoading ? (
+            <ClassListSkeleton />
+          ) : (
+            <>
+              {displayed.map(cls => {
+                const col = subjectColour(cls.subject.name, cls.yearLevel.level)
+                const active = selectedId === cls.id
+                return (
+                  <button
+                    key={cls.id}
+                    onClick={() => selectClass(cls.id)}
+                    className={`w-full text-left px-4 py-3.5 flex items-center gap-3 transition-all duration-200 border-b border-gray-50 ${
+                      active
+                        ? 'bg-blue-50/80 border-l-3 border-l-[#002F67]'
+                        : 'border-l-3 border-l-transparent hover:bg-gray-50'
+                    }`}
+                  >
+                    <div
+                      className="h-3.5 w-3.5 rounded-full flex-shrink-0 shadow-sm"
+                      style={{ backgroundColor: col }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-semibold truncate ${active ? 'text-[#002F67]' : 'text-gray-800'}`}>
+                        Yr {cls.yearLevel.level} {cls.subject.name}
+                      </p>
+                      <p className="text-xs text-gray-400 truncate mt-0.5">
+                        {cls.staff.name} · {scheduleLabel(cls)}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {cls._count.enrolments}/{cls.maxCapacity} enrolled
+                      </p>
+                    </div>
+                  </button>
+                )
+              })}
+              {displayed.length === 0 && (
+                <div className="py-16 text-center text-sm text-gray-400">
+                  {search ? `No classes match "${search}"` : 'No classes yet'}
                 </div>
-              </button>
-            )
-          })}
-          {displayed.length === 0 && (
-            <div className="py-16 text-center text-sm text-gray-400">
-              {search ? `No classes match "${search}"` : 'No classes yet'}
-            </div>
+              )}
+            </>
           )}
         </div>
 
@@ -374,13 +383,9 @@ export function ClassesView() {
             <p className="text-sm">Select a class to view details</p>
           </div>
         )}
-        {selectedId && loadingDetail && (
-          <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-            Loading…
-          </div>
-        )}
+        {selectedId && loadingDetail && <PanelLoading />}
         {detail && !loadingDetail && (
-          <div className="max-w-2xl mx-auto p-6 space-y-5">
+          <div key={detail.id} className="max-w-2xl mx-auto p-6 space-y-5 animate-in fade-in-0 duration-200">
 
             {/* Header card */}
             <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
@@ -1080,6 +1085,22 @@ function WeekRow({
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function ClassListSkeleton() {
+  return (
+    <div>
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="px-4 py-3.5 flex items-center gap-3 animate-pulse">
+          <div className="h-3.5 w-3.5 rounded-full bg-gray-100 flex-shrink-0" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <div className="h-3.5 w-32 rounded bg-gray-100" />
+            <div className="h-3 w-24 rounded bg-gray-100" />
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

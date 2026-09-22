@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, DollarSign, Clock, Users } from 'lucide-react'
+import { PanelLoading } from '@/components/ui/spinner'
 
 interface SessionLine {
   sessionId: number
@@ -121,11 +122,13 @@ export function PayrollView() {
       </div>
 
       {loading && (
-        <div className="rounded-xl bg-white border border-gray-100 p-6 text-sm text-gray-500">Loading…</div>
+        <div className="rounded-xl bg-white border border-gray-100 p-8">
+          <PanelLoading />
+        </div>
       )}
 
       {!loading && data && (
-        <>
+        <div className="space-y-4 animate-in fade-in-0 duration-200">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <KpiCard icon={DollarSign} label="Total Pay" value={fmtMoney(data.totalPay)} tone="emerald" />
             <KpiCard icon={Clock}      label="Total Hours" value={`${data.totalHours.toFixed(1)} hrs`} tone="blue" />
@@ -198,7 +201,7 @@ export function PayrollView() {
               })}
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   )

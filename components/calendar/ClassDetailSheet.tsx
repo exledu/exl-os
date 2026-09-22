@@ -4,6 +4,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Badge } from '@/components/ui/badge'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { InlineLoading } from '@/components/ui/spinner'
 
 interface CalendarEvent {
   extendedProps: {
@@ -87,7 +88,7 @@ export function ClassDetailSheet({ event, onClose }: Props) {
                 )}
               </ul>
             ) : (
-              <p className="text-zinc-400">Loading…</p>
+              <InlineLoading className="py-2" />
             )}
           </div>
           <Link

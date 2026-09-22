@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import { Plus, Mail, Phone, School, BookOpen, StickyNote, AlertCircle, Pencil, Trash2, X, Check, CalendarDays, Clock, ChevronRight } from 'lucide-react'
 import { subjectColour } from '@/lib/subject-colours'
+import { PanelLoading, Spinner } from '@/components/ui/spinner'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -134,6 +135,7 @@ export function StudentsView() {
   const searchParams = useSearchParams()
   const [students, setStudents]           = useState<StudentSummary[]>([])
   const [archivedStudents, setArchivedStudents] = useState<StudentSummary[]>([])
+  const [listLoading, setListLoading]     = useState(true)
   const [showArchived, setShowArchived]   = useState(false)
   const [yearLevels, setYearLevels]       = useState<YearLevel[]>([])
   const [search, setSearch]               = useState('')
@@ -194,6 +196,7 @@ export function StudentsView() {
       if (studentsRes.ok) setStudents(await studentsRes.json())
       if (archivedRes.ok) setArchivedStudents(await archivedRes.json())
       if (ylRes.ok) setYearLevels(await ylRes.json())
+      setListLoading(false)
       // Auto-select student from URL param (e.g. /students?id=5)
       const idParam = searchParams.get('id')
       if (idParam) {
@@ -330,60 +333,66 @@ export function StudentsView() {
         </div>
 
         <div className="flex-1 overflow-y-auto divide-y divide-zinc-50">
-          {students.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-16 text-center px-4">
-              <p className="text-sm text-zinc-400">No students yet.</p>
-              <Link href="/students/new" className="mt-2 text-xs text-indigo-600 hover:underline">
-                Add your first student
-              </Link>
-            </div>
-          )}
-          {(() => {
-            const q = search.trim().toLowerCase()
-            const visible = students
-              .filter(s => {
-                if (!q) return true
-                const name = fullName(s).toLowerCase()
-                const school = (s.school ?? '').toLowerCase()
-                const yr = `year ${s.yearLevel.level}`
-                return name.includes(q) || school.includes(q) || yr.includes(q)
-              })
-              .sort((a, b) => {
-                if (a.yearLevel.level !== b.yearLevel.level)
-                  return b.yearLevel.level - a.yearLevel.level
-                return fullName(a).localeCompare(fullName(b))
-              })
-            if (visible.length === 0 && search.trim())
-              return (
-                <div className="flex flex-col items-center justify-center py-12 text-center px-4">
-                  <p className="text-sm text-zinc-400">No students match "{search}"</p>
+          {listLoading ? (
+            <StudentListSkeleton />
+          ) : (
+            <>
+              {students.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+                  <p className="text-sm text-zinc-400">No students yet.</p>
+                  <Link href="/students/new" className="mt-2 text-xs text-indigo-600 hover:underline">
+                    Add your first student
+                  </Link>
                 </div>
-              )
-            return visible.map(s => (
-            <button
-              key={s.id}
-              onClick={() => selectStudent(s.id)}
-              className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors hover:bg-zinc-50 ${
-                selectedId === s.id
-                  ? 'bg-zinc-50 border-l-2 border-l-zinc-900'
-                  : 'border-l-2 border-l-transparent'
-              }`}
-            >
-              <div className={`h-9 w-9 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 ${avatarColour(s.yearLevel.level)}`}>
-                {initials(s.name, s.lastName)}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-zinc-900 truncate">{fullName(s)}</p>
-                <p className="text-xs text-zinc-400 truncate">
-                  Yr {s.yearLevel.level}{s.school ? ` · ${s.school}` : ''}
-                </p>
-                <p className="text-[11px] text-zinc-300 mt-0.5">
-                  {s._count.enrolments} class{s._count.enrolments !== 1 ? 'es' : ''}
-                </p>
-              </div>
-            </button>
-            ))
-          })()}
+              )}
+              {(() => {
+                const q = search.trim().toLowerCase()
+                const visible = students
+                  .filter(s => {
+                    if (!q) return true
+                    const name = fullName(s).toLowerCase()
+                    const school = (s.school ?? '').toLowerCase()
+                    const yr = `year ${s.yearLevel.level}`
+                    return name.includes(q) || school.includes(q) || yr.includes(q)
+                  })
+                  .sort((a, b) => {
+                    if (a.yearLevel.level !== b.yearLevel.level)
+                      return b.yearLevel.level - a.yearLevel.level
+                    return fullName(a).localeCompare(fullName(b))
+                  })
+                if (visible.length === 0 && search.trim())
+                  return (
+                    <div className="flex flex-col items-center justify-center py-12 text-center px-4">
+                      <p className="text-sm text-zinc-400">No students match "{search}"</p>
+                    </div>
+                  )
+                return visible.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => selectStudent(s.id)}
+                  className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors hover:bg-zinc-50 ${
+                    selectedId === s.id
+                      ? 'bg-zinc-50 border-l-2 border-l-zinc-900'
+                      : 'border-l-2 border-l-transparent'
+                  }`}
+                >
+                  <div className={`h-9 w-9 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 ${avatarColour(s.yearLevel.level)}`}>
+                    {initials(s.name, s.lastName)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-zinc-900 truncate">{fullName(s)}</p>
+                    <p className="text-xs text-zinc-400 truncate">
+                      Yr {s.yearLevel.level}{s.school ? ` · ${s.school}` : ''}
+                    </p>
+                    <p className="text-[11px] text-zinc-300 mt-0.5">
+                      {s._count.enrolments} class{s._count.enrolments !== 1 ? 'es' : ''}
+                    </p>
+                  </div>
+                </button>
+                ))
+              })()}
+            </>
+          )}
         </div>
 
         {/* Archived students dropdown */}
@@ -429,14 +438,10 @@ export function StudentsView() {
           </div>
         )}
 
-        {selectedId && loadingDetail && (
-          <div className="flex items-center justify-center h-full text-zinc-400 text-sm">
-            Loading…
-          </div>
-        )}
+        {selectedId && loadingDetail && <PanelLoading />}
 
         {selected && !loadingDetail && (
-          <div className="p-6">
+          <div key={selected.id} className="p-6 animate-in fade-in-0 duration-200">
 
             {/* ── Full-width header ────────────────────────────────── */}
             <div className="flex items-start gap-4 mb-6">
@@ -753,6 +758,22 @@ export function StudentsView() {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
+function StudentListSkeleton() {
+  return (
+    <div>
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="px-4 py-3 flex items-center gap-3 animate-pulse">
+          <div className="h-9 w-9 rounded-full bg-zinc-100 flex-shrink-0" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <div className="h-3.5 w-28 rounded bg-zinc-100" />
+            <div className="h-3 w-20 rounded bg-zinc-100" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 const inputCls = 'w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm text-zinc-800 focus:outline-none focus:ring-1 focus:ring-zinc-400'
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -868,8 +889,8 @@ function EnrolClassPicker({
         disabled={loading}
         className="flex items-center gap-1.5 text-xs text-indigo-600 hover:underline mt-1"
       >
-        <Plus className="h-3 w-3" />
-        {loading ? 'Loading…' : 'Enrol in class'}
+        {loading ? <Spinner className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+        Enrol in class
       </button>
     )
   }
@@ -1131,8 +1152,8 @@ function EnrolFreeTrialPicker({ studentId, onEnrolled }: { studentId: number; on
         disabled={loading}
         className="flex items-center gap-1.5 text-xs text-amber-700 hover:underline mt-1"
       >
-        <Plus className="h-3 w-3" />
-        {loading ? 'Loading…' : 'Enrol free trial'}
+        {loading ? <Spinner className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+        Enrol free trial
       </button>
     )
   }

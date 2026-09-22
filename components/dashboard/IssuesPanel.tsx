@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { AddIssueDialog } from './AddIssueDialog'
 import { IssueCard } from './IssueCard'
 import { Mail, Plus } from 'lucide-react'
+import { InlineLoading } from '@/components/ui/spinner'
 
 export type IssueType = 'FREE_TRIAL' | 'CANCELLATION' | 'RESCHEDULE' | 'ENQUIRY'
 export type IssuePriority = 'LOW' | 'MEDIUM' | 'URGENT'
@@ -158,11 +159,7 @@ export function IssuesPanel() {
 
       {/* Issue list */}
       <div className="flex-1 overflow-y-auto divide-y divide-zinc-50">
-        {loading && (
-          <div className="flex items-center justify-center py-16 text-zinc-400 text-sm">
-            Loading…
-          </div>
-        )}
+        {loading && <InlineLoading className="py-16" />}
         {!loading && displayed.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <p className="text-zinc-400 text-sm">No outstanding issues</p>
