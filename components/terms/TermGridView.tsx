@@ -1049,8 +1049,10 @@ function RosterSection({ detail, pending, onPending }: {
 }) {
   // Only include enrolments that existed on or before this session's date, so
   // a student who joined mid-term doesn't retroactively appear in older
-  // sessions' rosters.
-  const sessionDay = new Date(detail.date + 'T23:59:59.999Z')
+  // sessions' rosters. detail.date is an ISO timestamp — take just the day
+  // and set the cutoff to end-of-day.
+  const dayOnly = detail.date.slice(0, 10)                            // "2026-10-15"
+  const sessionDay = new Date(dayOnly + 'T23:59:59.999Z')
   const activeEnrolments = detail.class.enrolments.filter(
     e => new Date(e.enrolledAt) <= sessionDay
   )
