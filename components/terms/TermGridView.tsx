@@ -1477,12 +1477,19 @@ function StaffPanel({ termId, selectedStaffId, onSelect, onClose }: {
 }) {
   const [rows, setRows] = useState<StaffFull[] | null>(null)
   const [q, setQ] = useState('')
+  const [tick, setTick] = useState(0)
+  const [mode, setMode] = useState<'view' | 'edit'>('view')
+  const [draft, setDraft] = useState<{ name: string; email: string; phone: string; roles: string[] } | null>(null)
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     fetch(`/api/terms/${termId}/staff`)
       .then(r => r.ok ? r.json() : [])
       .then(setRows)
-  }, [termId])
+  }, [termId, tick])
+
+  // Reset edit mode when switching between staff.
+  useEffect(() => { setMode('view'); setDraft(null) }, [selectedStaffId])
 
   const selected = rows?.find(s => s.id === selectedStaffId) ?? null
 
@@ -1518,66 +1525,202 @@ function StaffPanel({ termId, selectedStaffId, onSelect, onClose }: {
       ) : selected ? (
         // ── Detail view ──
         <div className="p-4 space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-800 text-sm font-semibold">
-              {initials(selected.name)}
+          <div className="flex items-start gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-800 text-sm font-semibold shrink-0">
+              {initials(mode === 'edit' && draft ? draft.name : selected.name)}
             </div>
-            <div>
-              <div className="text-lg font-semibold text-[#002F67]">{selected.name}</div>
-              <div className="flex flex-wrap gap-1 mt-0.5">
-                {selected.roles.map(r => (
-                  <span key={r} className={`inline-block rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${roleClass(r)}`}>
-                    {r}
-                  </span>
-                ))}
-              </div>
+            <div className="flex-1 min-w-0">
+              {mode === 'edit' && draft ? (
+                <>
+                  <input
+                    value={draft.name}
+                    onChange={e => setDraft({ ...draft, name: e.target.value })}
+                    className="w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-sm font-semibold"
+                  />
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {(['tutor', 'admin'] as const).map(r => {
+                      const active = draft.roles.includes(r)
+                      return (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => setDraft({
+                            ...draft,
+                            roles: active ? draft.roles.filter(x => x !== r) : [...draft.roles, r],
+                          })}
+                          className={`rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+                            active ? roleClass(r) : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          {r}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-lg font-semibold text-[#002F67] break-words">{selected.name}</div>
+                  <div className="flex flex-wrap gap-1 mt-0.5">
+                    {selected.roles.map(r => (
+                      <span key={r} className={`inline-block rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${roleClass(r)}`}>
+                        {r}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
-          </div>
-
-          <dl className="space-y-1.5 text-sm">
-            {selected.email && (
-              <div className="flex items-start gap-2">
-                <Mail className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
-                <span className="text-gray-700 break-all">{selected.email}</span>
-              </div>
+            {mode === 'view' && (
+              <button
+                onClick={() => {
+                  setDraft({
+                    name:  selected.name,
+                    email: selected.email ?? '',
+                    phone: selected.phone ?? '',
+                    roles: [...selected.roles],
+                  })
+                  setMode('edit')
+                }}
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 shrink-0"
+              >
+                <Pencil className="h-3 w-3" /> Edit
+              </button>
             )}
-            {selected.phone && (
-              <div className="flex items-start gap-2">
-                <Phone className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
-                <span className="text-gray-700">{selected.phone}</span>
-              </div>
-            )}
-          </dl>
-
-          <div className="grid grid-cols-2 gap-2">
-            <Stat label="Classes"           value={String(selected.classes)} />
-            <Stat label="Avg stu / class"   value={selected.avgStudentsPerClass.toString()} />
           </div>
 
-          <div className="pt-2 border-t border-gray-100">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1.5">
-              This term
+          {mode === 'edit' && draft ? (
+            <div className="space-y-2">
+              <label className="block">
+                <div className="flex items-center gap-1.5 mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                  <Mail className="h-3 w-3" /> Email
+                </div>
+                <input
+                  type="email"
+                  value={draft.email}
+                  onChange={e => setDraft({ ...draft, email: e.target.value })}
+                  className="w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-sm"
+                />
+              </label>
+              <label className="block">
+                <div className="flex items-center gap-1.5 mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                  <Phone className="h-3 w-3" /> Phone
+                </div>
+                <input
+                  value={draft.phone}
+                  onChange={e => setDraft({ ...draft, phone: e.target.value })}
+                  className="w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-sm"
+                />
+              </label>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Stat label="Sessions taught" value={String(selected.sessionsThisTerm)} sub="includes covers" />
-              <Stat label="Hours"           value={selected.hoursThisTerm.toString()} />
-            </div>
-            <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800">
-                Projected pay
-              </div>
-              <div className="text-lg font-semibold text-emerald-900 tabular-nums">
-                ${selected.payThisTerm.toFixed(2)}
-              </div>
-              <div className="text-[10px] text-emerald-700/70">
-                Hours × per-session rate, based on current enrolments.
-              </div>
-            </div>
-          </div>
+          ) : (
+            <dl className="space-y-1.5 text-sm">
+              {selected.email && (
+                <div className="flex items-start gap-2">
+                  <Mail className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
+                  <span className="text-gray-700 break-all">{selected.email}</span>
+                </div>
+              )}
+              {selected.phone && (
+                <div className="flex items-start gap-2">
+                  <Phone className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
+                  <span className="text-gray-700">{selected.phone}</span>
+                </div>
+              )}
+            </dl>
+          )}
 
-          <div className="text-[11px] text-gray-500 pt-1 border-t border-gray-100">
-            Grid filtered to this tutor's classes only. Press <span className="font-medium text-gray-700">All staff</span> to clear.
-          </div>
+          {mode === 'view' && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <Stat label="Classes"           value={String(selected.classes)} />
+                <Stat label="Avg stu / class"   value={selected.avgStudentsPerClass.toString()} />
+              </div>
+
+              <div className="pt-2 border-t border-gray-100">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1.5">
+                  This term
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Stat label="Sessions taught" value={String(selected.sessionsThisTerm)} sub="includes covers" />
+                  <Stat label="Hours"           value={selected.hoursThisTerm.toString()} />
+                </div>
+                <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800">
+                    Projected pay
+                  </div>
+                  <div className="text-lg font-semibold text-emerald-900 tabular-nums">
+                    ${selected.payThisTerm.toFixed(2)}
+                  </div>
+                  <div className="text-[10px] text-emerald-700/70">
+                    Hours × per-session rate, based on current enrolments.
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-[11px] text-gray-500 pt-1 border-t border-gray-100">
+                Grid filtered to this tutor's classes only. Press <span className="font-medium text-gray-700">All staff</span> to clear.
+              </div>
+            </>
+          )}
+
+          {mode === 'edit' && draft && (
+            <div className="pt-2 border-t border-gray-100 flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!confirm(`Delete ${selected.name}? Their past sessions stay in the record, but the staff row is removed.`)) return
+                  setBusy(true)
+                  try {
+                    const res = await fetch(`/api/staff/${selected.id}`, { method: 'DELETE' })
+                    if (res.ok) { onSelect(null); setTick(t => t + 1) }
+                    else {
+                      const t = await res.text()
+                      alert(`Failed to delete: ${t}`)
+                    }
+                  } finally { setBusy(false) }
+                }}
+                disabled={busy}
+                className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 disabled:opacity-50"
+              >
+                <Trash2 className="h-3 w-3" /> Delete
+              </button>
+              <div className="ml-auto flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => { setMode('view'); setDraft(null) }}
+                  disabled={busy}
+                  className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setBusy(true)
+                    try {
+                      const res = await fetch(`/api/staff/${selected.id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          name:  draft.name,
+                          email: draft.email,
+                          phone: draft.phone,
+                          roles: draft.roles,
+                        }),
+                      })
+                      if (res.ok) { setMode('view'); setTick(t => t + 1) }
+                      else alert('Failed to save')
+                    } finally { setBusy(false) }
+                  }}
+                  disabled={busy || !draft.name.trim()}
+                  className="rounded-md bg-[#002F67] px-2 py-1 text-[11px] font-medium text-white hover:bg-[#011f42] disabled:opacity-50"
+                >
+                  {busy ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         // ── List view ──
